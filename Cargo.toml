@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+default-members = ["small_talk"]
+members = ["small_talk", "small_talk_ml"]
+
+[workspace.dependencies]
+tracing = "0.1.40"
+eyre = "0.6"
+thiserror = "2.0.0"
+error_set = "0.7.0"
+
+# Build dependencies with full release optimizations in debug builds since they'll rarely change
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+incremental = true
+debug = 0
+
+

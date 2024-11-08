@@ -1,0 +1,23 @@
+[package]
+name = "small_talk"
+version = "0.1.0"
+edition = "2021"
+description = "TTS api for game voicing"
+repository = "https://github.com/Hirtol/small-talk"
+license = "MIT"
+
+[lib]
+doctest = false
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "small_talk"
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+eyre.workspace = true
+thiserror.workspace = true
+error_set.workspace = true
