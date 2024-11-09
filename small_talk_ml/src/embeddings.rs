@@ -22,6 +22,10 @@ pub struct LLamaEmbedder {
     batch: LlamaBatch,
 }
 
+// SAFETY: GGML/LLama.CPP seem to be thread-safe since the start of this year, as in, no thread-local state to worry about
+// (see https://github.com/ggerganov/llama.cpp/discussions/499). 
+unsafe impl Send for LLamaEmbedder {}
+
 impl LLamaEmbedder {
     /// Create a [LLamaEmbedder] by initialising the `LLama.CPP` backend and loading the given model from `model_path`.
     ///
