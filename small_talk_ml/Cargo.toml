@@ -24,4 +24,6 @@ llama-cpp-2 = { git = "https://github.com/utilityai/llama-cpp-rs/", features = [
 llama-cpp-sys-2 = { git = "https://github.com/utilityai/llama-cpp-rs/", features = [] }
 burn = { version = "0.15.0", features = ["autodiff", "wgpu", "train"] }
 burn-import = "0.15.0"
-serde = { version = "1.0.214", features = ["derive"] }
+
+serde.workspace = true
+serde_json.workspace = true
