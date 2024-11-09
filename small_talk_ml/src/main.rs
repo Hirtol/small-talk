@@ -25,6 +25,9 @@ use std::{
     ,
     time::Instant,
 };
+use burn::backend::NdArray;
+use burn::backend::ndarray::NdArrayDevice;
+use small_talk_ml::emotion_classifier::{model, BasicEmotionClassifier};
 
 const CLASSES: [&str; 28] = [
     "admiration",
@@ -68,16 +71,34 @@ const NEW_CLASSES: [&str; 8] = [
     "fear",
 ];
 
-type Back = Wgpu<f32, i32>;
+// type Back = Wgpu<f32, i32>;
+type Back = NdArray<f32, i32>;
 type MyAuto = Autodiff<Back>;
 
 fn main() -> eyre::Result<()> {
-    infer_setup()
+    let device = NdArrayDevice::default();
+    let mut classifier: BasicEmotionClassifier<Back> = BasicEmotionClassifier::new("models/text_emotion_classifier/classifier_head", "models/text_emotion_classifier/ggml-model-Q4_k.gguf", device).unwrap();
+    for i in 0..100 {
+        let now = std::time::Instant::now();
+        let out = classifier.infer([
+            "\"Johny, why are you going over there? Johny?!\"",
+            "Oh my clowns, great... I'm going to fucking kill you",
+            "You make me complete, happy, and whole!",
+            "And now.. he's dead. And I'm left with nothing.",
+            "What kind of worm is that? Eugh, no thank you.",
+            "You'll wish you were dead when I'm done with you!"
+        ]).unwrap();
+
+        println!("Data: {out:?}, took: {:?}", now.elapsed());
+    }
+
+    Ok(())
+    // infer_setup()
     // train_setup()
 }
 
 pub fn infer_setup() -> eyre::Result<()> {
-    let device = WgpuDevice::default();
+    let device = Default::default();
     let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
     let ctx_params = LlamaContextParams::default()
         .with_n_threads(16)
@@ -100,18 +121,23 @@ pub fn infer_setup() -> eyre::Result<()> {
             "Oh my clowns, great... I'm going to fucking kill you",
             "You make me complete, happy, and whole!",
             "And now.. he's dead. And I'm left with nothing.",
-            "What kind of worm is that? Eugh, no thank you."
+            "What kind of worm is that? Eugh, no thank you.",
         ],
         false,
         true,
     )?;
+    println!("Embedding took: {:?}", now.elapsed());
+
+    let now = Instant::now();
+
     infer::<Back>(
         "./artifacts_friends_2",
         &device,
-        LLamaTrainEmbedder::embed_to_tensor(embeddings, &device),
+        model::embed_to_tensor(embeddings, &device),
     );
 
-    println!("Training took: {:?}", now.elapsed());
+    println!("Infer took: {:?}", now.elapsed());
+
     Ok(())
 }
 
@@ -147,7 +173,7 @@ pub fn train_setup() -> eyre::Result<()> {
     let model_cfg = EmotionModelConfig::new(384, 8);
 
     training::train::<MyAuto>(
-        "./artifacts_friends_2",
+        "./artifacts_friends_3",
         merged_train_dataset,
         test_go_dataset,
         TrainingConfig::new(model_cfg, AdamConfig::new()),
@@ -166,6 +192,7 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: &B::Device, embedding: Tens
 
     let model = config.model.init::<B>(device).load_record(record);
 
+    let now = Instant::now();
     let output = model.forward(embedding);
 
     let probabilities = softmax(output.clone(), 1);
@@ -182,6 +209,8 @@ pub fn infer<B: Backend>(artifact_dir: &str, device: &B::Device, embedding: Tens
 
         println!("Slice: {top_5:#?}");
     }
+    println!("Infer took real: {:?}", now.elapsed());
+
 }
 
 #[tracing::instrument(skip_all)]

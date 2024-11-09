@@ -54,7 +54,7 @@ pub struct LLamaTrainEmbedder {
 
 impl LLamaTrainEmbedder {
     pub fn new(embedding_model: impl AsRef<Path>, ctx: LlamaContextParams, cache_path: impl Into<PathBuf>) -> eyre::Result<Self> {
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
+        let model_params = LlamaModelParams::default();
 
         let emb =  LLamaEmbedder::new(embedding_model, model_params, ctx, None)?;
         let cache_path = cache_path.into();
@@ -81,20 +81,6 @@ impl LLamaTrainEmbedder {
         }
 
         Ok(output)
-    }
-    
-    pub fn embed_to_tensor<B: Backend>(embeddings: impl IntoIterator<Item = Vec<f32>>, device: &B::Device) -> Tensor<B, 2> {
-        let tensors = embeddings
-            .into_iter()
-            .map(|emb| {
-                let len = emb.len();
-                TensorData::new(emb, [len]).convert::<f32>()
-            })
-            .map(|data| Tensor::<B, 1>::from_data(data, device))
-            .map(|tens| tens.unsqueeze_dim(0))
-            .collect::<Vec<_>>();
-        
-        Tensor::cat(tensors, 0).to_device(&device)
     }
     
     fn load_or_default(cache: impl AsRef<Path>) -> HashMap<String, Vec<f32>> {

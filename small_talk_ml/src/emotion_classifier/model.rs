@@ -2,7 +2,7 @@ use burn::config::Config;
 use burn::module::Module;
 use burn::nn::{Dropout, DropoutConfig, LeakyReluConfig, Linear, LinearConfig};
 use burn::nn::loss::CrossEntropyLossConfig;
-use burn::prelude::{Backend, Int, Tensor};
+use burn::prelude::{Backend, Int, Tensor, TensorData};
 use burn::train::ClassificationOutput;
 use crate::emotion_classifier::data::EmotionInferBatch;
 
@@ -63,4 +63,19 @@ impl<B: Backend> EmotionModel<B> {
         // Dropout is automatically skipped if we have a back-end without autodiff, so can just call forward
         self.forward(batch.embeddings)
     }
+}
+
+/// Turn LLama.cpp embeddings to the Burn Tensor.
+pub fn embed_to_tensor<B: Backend>(embeddings: impl IntoIterator<Item = Vec<f32>>, device: &B::Device) -> Tensor<B, 2> {
+    let tensors = embeddings
+        .into_iter()
+        .map(|emb| {
+            let len = emb.len();
+            TensorData::new(emb, [len]).convert::<f32>()
+        })
+        .map(|data| Tensor::<B, 1>::from_data(data, device))
+        .map(|tens| tens.unsqueeze())
+        .collect::<Vec<_>>();
+
+    Tensor::cat(tensors, 0).to_device(&device)
 }
