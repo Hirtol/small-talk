@@ -1,6 +1,6 @@
 use burn::config::Config;
 use burn::module::Module;
-use burn::nn::{Dropout, DropoutConfig, Linear, LinearConfig};
+use burn::nn::{Dropout, DropoutConfig, LeakyReluConfig, Linear, LinearConfig};
 use burn::nn::loss::CrossEntropyLossConfig;
 use burn::prelude::{Backend, Int, Tensor};
 use burn::train::ClassificationOutput;
@@ -8,6 +8,8 @@ use crate::emotion_classifier::data::EmotionInferBatch;
 
 #[derive(Module, Debug)]
 pub struct EmotionModel<B: Backend> {
+    hidden_layer: Linear<B>,
+    relu: burn::nn::LeakyRelu,
     classifier: Linear<B>,
     dropout: Dropout
 }
@@ -25,7 +27,9 @@ pub struct EmotionModelConfig {
 impl EmotionModelConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> EmotionModel<B> {
         EmotionModel {
-            classifier: LinearConfig::new(self.incoming_features, self.num_classes).init(device),
+            hidden_layer: LinearConfig::new(self.incoming_features, 800).init(device),
+            relu: LeakyReluConfig::new().init(),
+            classifier: LinearConfig::new(800, self.num_classes).init(device),
             dropout: DropoutConfig::new(self.dropout).init(),
         }
     }
@@ -39,7 +43,10 @@ impl<B: Backend> EmotionModel<B> {
         let x = embedding;
         // Drop part of the embeddings
         let x = self.dropout.forward(x);
-
+        
+        let x = self.hidden_layer.forward(x);
+        let x = self.relu.forward(x);
+        
         self.classifier.forward(x)
     }
 
