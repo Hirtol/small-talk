@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use burn::backend::NdArray;
+use burn::data::dataloader::batcher::Batcher;
 use burn::prelude::{Backend, Config, Module};
 use burn::record::{CompactRecorder, Recorder};
 use error_set::error_set;
@@ -14,17 +15,6 @@ use crate::emotion_classifier::training::{LLamaTrainEmbedder, TrainingConfig};
 pub mod model;
 pub mod data;
 pub mod training;
-
-pub const BASIC_EMOTIONS: [&str; 8] = [
-    "neutral",
-    "non-neutral",
-    "joy",
-    "surprise",
-    "anger",
-    "sadness",
-    "disgust",
-    "fear",
-];
 
 error_set! {
     LoadError = {
@@ -43,7 +33,7 @@ error_set! {
 pub struct BasicEmotionClassifier<B: Backend = NdArray> {
     /// Classifier model, simple linear layer on top of the headings provided by `llama_embedder`
     model: EmotionModel<B>,
-    /// BERT-based model which will generate snippet embeddings. We use a Llama.cpp as its CPU inference speed is 
+    /// BERT-based model which will generate snippet embeddings. We use Llama.cpp as its CPU inference speed is 
     /// literally 10 to 100 times faster than implementing it in Rust (irrespective of frameworks atm, they all suck for CPU inference).
     llama_embedder: LLamaEmbedder,
     batcher: EmotionBatcher<B>,
@@ -98,8 +88,20 @@ impl<B: Backend> BasicEmotionClassifier<B> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq)]
+pub const BASIC_EMOTIONS: [&str; 8] = [
+    "neutral",
+    "non-neutral",
+    "joy",
+    "surprise",
+    "anger",
+    "sadness",
+    "disgust",
+    "fear",
+];
+
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Default)]
 pub enum BasicEmotion {
+    #[default]
     Neutral = 0,
     NonNeutral = 1,
     Joy = 2,

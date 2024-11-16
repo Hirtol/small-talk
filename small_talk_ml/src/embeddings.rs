@@ -22,7 +22,7 @@ pub struct LLamaEmbedder {
     batch: LlamaBatch,
 }
 
-// SAFETY: GGML/LLama.CPP seem to be thread-safe since the start of this year, as in, no thread-local state to worry about
+// SAFETY: GGML/LLama.CPP seem to be thread-safe since the start of this year (2024), as in, no thread-local state to worry about
 // (see https://github.com/ggerganov/llama.cpp/discussions/499). 
 unsafe impl Send for LLamaEmbedder {}
 
