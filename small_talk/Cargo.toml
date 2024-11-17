@@ -23,6 +23,7 @@ eyre.workspace = true
 thiserror.workspace = true
 error_set.workspace = true
 itertools = { workspace = true }
+papaya = { version = "0.1.4", features = ["serde"] }
 
 tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
@@ -31,13 +32,14 @@ axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"
 axum-extra = { version = "0.9.6", features = [] }
 tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
 tower-http = { version = "0.6.1", features = ["full"] }
+reqwest = { version = "0.12.9", features = ["json"] }
 
 axum-jsonschema = { version = "0.8.0", features = ["aide"] }
 aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
 schemars = { version = "0.8.10", features = [] }
 
 chrono = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 
 # Path Walking

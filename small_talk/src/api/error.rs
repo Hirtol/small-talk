@@ -1,3 +1,5 @@
+use aide::axum::IntoApiResponse;
+use aide::{OperationIo, OperationOutput};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_jsonschema::JsonSchemaRejection;
@@ -7,8 +9,9 @@ use serde::{Serialize};
 use crate::api::extractor::Json;
 
 error_set! {
+    #[derive(OperationIo)]
     ApiError = {
-        #[display("Internal error, please submit a bug report {0}")]
+        #[display("Internal error, please submit a bug report: {0}")]
         Other(eyre::Error),
         #[display("JSON validation error {source:?}")]
         Json {
@@ -30,6 +33,8 @@ impl<T: Serialize> IntoResponse for ApiResponseError<T> {
         (StatusCode::from_u16(self.code).unwrap(), Json(self)).into_response()
     }
 }
+
+// impl OperationOutput for ApiError { type Inner = (); }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {

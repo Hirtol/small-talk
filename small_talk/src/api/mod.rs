@@ -14,8 +14,11 @@ use crate::system::{VoiceSystem, VoiceSystemHandle};
 
 mod extractor;
 pub mod error;
+pub mod session;
+pub mod tts;
 
 pub type ApiRouter<S = ()> = aide::axum::ApiRouter<S>;
+pub type ApiResult<T, E = ApiError> = Result<T, E>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -33,7 +36,8 @@ pub fn config(app_state: AppState) -> Router<AppState> {
     let mut api = OpenApi::default();
     
     let base_router = ApiRouter::new()
-        .nest_api_service("/docs", docs_routes());
+        .nest_api_service("/docs", docs_routes())
+        .merge(session::routes::config());
     
     ApiRouter::new()
         .nest("/api", base_router)
@@ -62,7 +66,7 @@ pub fn docs_routes() -> ApiRouter {
 }
 
 async fn serve_docs(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
-    Json(api.deref().clone()).into_response()
+    Json(api).into_response()
 }
 
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
@@ -71,7 +75,7 @@ fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
         .description(include_str!("../../../README.md"))
         .default_response_with::<Json<ApiResponseError<()>>, _>(|res| {
             res.example(ApiResponseError {
-                code: 404,
+                code: 500,
                 message: "An error occurred".to_string(),
                 details: None,
             })

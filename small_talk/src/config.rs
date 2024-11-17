@@ -78,6 +78,10 @@ impl DirectoryConfig {
     pub fn model_path(&self) -> PathBuf {
         self.appdata.join("models")
     }
+    
+    pub fn game_data_path(&self) -> PathBuf {
+        self.appdata.join("game_data")
+    }
 }
 
 impl Default for ServerConfig {
