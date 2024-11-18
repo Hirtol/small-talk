@@ -41,7 +41,7 @@ impl LLamaEmbedder {
         ctx_params: LlamaContextParams,
         n_batch: Option<u32>,
     ) -> eyre::Result<Self> {
-        let mut backend = LlamaBackend::init()?;
+        let mut backend = LlamaBackend::init().unwrap_or(LlamaBackend {});
         backend.void_logs();
 
         let model = LlamaModel::load_from_file(&backend, model_path, &model_params)?;

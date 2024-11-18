@@ -88,10 +88,10 @@ fn main() -> eyre::Result<()> {
             "What kind of worm is that? Eugh, no thank you.",
             "You'll wish you were dead when I'm done with you!"
         ]).unwrap();
-
+    
         println!("Data: {out:?}, took: {:?}", now.elapsed());
     }
-
+    
     Ok(())
     // infer_setup()
     // train_setup()
