@@ -14,14 +14,14 @@ use tower_http::trace::TraceLayer;
 
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
-use crate::system::{VoiceSystem, VoiceSystemHandle};
+use crate::system::{TtsSystem, TtsSystemHandle};
 
 mod first_time;
 
 pub struct Application {
     pub tcp: TcpListener,
     pub config: SharedConfig,
-    pub voice: VoiceSystemHandle,
+    pub voice: TtsSystemHandle,
 }
 
 impl Application {
@@ -31,7 +31,7 @@ impl Application {
 
         first_time::first_time_setup(&config).await?;
         
-        let handle = Arc::new(VoiceSystem::new());
+        let handle = Arc::new(TtsSystem::new());
         
         let result = Application {
             tcp,
@@ -83,7 +83,7 @@ impl Application {
 
 async fn construct_server(
     config: SharedConfig,
-    system: VoiceSystemHandle,
+    system: TtsSystemHandle,
 ) -> eyre::Result<Router> {
     let state = AppState {
         config: config,

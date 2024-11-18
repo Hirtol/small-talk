@@ -99,7 +99,7 @@ pub const BASIC_EMOTIONS: [&str; 8] = [
     "fear",
 ];
 
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BasicEmotion {
     #[default]
     Neutral = 0,
@@ -110,6 +110,22 @@ pub enum BasicEmotion {
     Sadness = 5,
     Disgust = 6,
     Fear = 7
+}
+
+impl BasicEmotion {
+    pub fn matches_file(&self, file_name: &str) -> bool {
+        file_name.contains(BASIC_EMOTIONS[*self as usize])
+    }
+    
+    pub fn from_file_name(file_name: &str) -> Option<BasicEmotion> {
+        for (i, emotion) in BASIC_EMOTIONS.iter().enumerate() {
+            if file_name.contains(emotion) {
+                return BasicEmotion::try_from(i as i32).ok()
+            }
+        }
+        
+        None
+    }
 }
 
 impl TryFrom<i32> for BasicEmotion {

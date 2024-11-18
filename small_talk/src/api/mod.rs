@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use crate::api::error::{ApiError, ApiResponseError};
 use crate::api::extractor::Json;
 use crate::config::SharedConfig;
-use crate::system::{VoiceSystem, VoiceSystemHandle};
+use crate::system::{TtsSystem, TtsSystemHandle};
 
 mod extractor;
 pub mod error;
@@ -23,7 +23,7 @@ pub type ApiResult<T, E = ApiError> = Result<T, E>;
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) config: SharedConfig,
-    pub(crate) system: VoiceSystemHandle,
+    pub(crate) system: TtsSystemHandle,
 }
 
 /// Root config for all GraphQL queries
