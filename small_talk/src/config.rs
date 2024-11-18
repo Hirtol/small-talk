@@ -57,8 +57,6 @@ pub struct Config {
 pub struct DirectoryConfig {
     /// Directory containing appdata managed by the application, namely ML models.
     pub appdata: PathBuf,
-    /// Directory storing voice information.
-    pub voices: PathBuf
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -98,7 +96,6 @@ impl Default for DirectoryConfig {
         let app_dir = crate::get_app_dirs().config_dir;
         Self {
             appdata: app_dir.join("appdata"),
-            voices: app_dir.join("voices"),
         }
     }
 }

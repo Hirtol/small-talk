@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 default-members = ["small_talk"]
-members = ["small_talk", "small_talk_ml"]
+members = ["small_talk", "small_talk_ml", "small_talk_organiser"]
 
 [workspace.dependencies]
 tracing = "0.1.40"
@@ -22,5 +22,9 @@ opt-level = 3
 [profile.release]
 incremental = true
 debug = 0
+
+# Fix compile error on windows where `esaxx` forces dynamic compilation (from tokenizer lib)
+[patch.crates-io]
+esaxx-rs = { git = "https://github.com/thewh1teagle/esaxx-rs", branch = "feat/dynamic-msvc-link"}
 
 

@@ -4,6 +4,7 @@ use itertools::Itertools;
 use small_talk_ml::emotion_classifier::BasicEmotion;
 use std::path::PathBuf;
 use path_abs::PathOps;
+use walkdir::DirEntry;
 
 #[derive(Debug, Clone)]
 pub struct VoiceManager {
@@ -15,11 +16,11 @@ impl VoiceManager {
         Self { conf }
     }
 
-    pub fn get_voice(&self, dest: Destination, voice: &str) -> eyre::Result<FsVoiceData> {
+    pub fn get_voice(&self, dest: VoiceDestination, voice: &str) -> eyre::Result<FsVoiceData> {
         let path = dest.to_path(&self.conf).join(voice);
         if path.exists() {
             Ok(FsVoiceData {
-                dir: dest.to_path(&self.conf).join(voice),
+                dir: path,
                 name: voice.into(),
             })    
         } else {
@@ -66,8 +67,9 @@ impl VoiceManager {
     /// 
     /// Renames the sample to the expected name representing the emotion embedded in the sample.
     /// This is later used for sample collection.
-    pub fn store_voice_samples(&mut self, dest: Destination, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
+    pub fn store_voice_samples(&mut self, dest: VoiceDestination, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
         let destination = dest.to_path(&self.conf).join(voice_name);
+        std::fs::create_dir_all(&destination)?;
         
         let mut existing_samples = {
             if let Ok(voice_data) = self.get_voice(dest.clone(), voice_name) {
@@ -93,18 +95,18 @@ impl VoiceManager {
 }
 
 #[derive(Clone, Debug)]
-pub enum Destination<'a> {
+pub enum VoiceDestination<'a> {
     Global,
     Game(&'a str)
 }
 
-impl<'a> Destination<'a> {
+impl<'a> VoiceDestination<'a> {
     pub fn to_path(&self, conf: &Config) -> PathBuf {
         match self {
-            Destination::Global => {
+            VoiceDestination::Global => {
                 super::dirs::global_voice(conf)
             },
-            Destination::Game(game_name) => {
+            VoiceDestination::Game(game_name) => {
                 super::dirs::game_voice(conf, game_name)
             }
         }
@@ -167,8 +169,10 @@ impl FsVoiceData {
     /// Return all samples of the given emotion on disk.
     pub fn get_emotion_samples(&self, emotion: BasicEmotion) -> eyre::Result<Vec<FsVoiceSample>> {
         Ok(walkdir::WalkDir::new(&self.dir)
+            .min_depth(1)
+            .max_depth(2)
             .into_iter()
-            .filter_entry(|d| d.file_type().is_file())
+            .filter_entry(is_wav)
             .flatten()
             .filter(|d| emotion.matches_file(&d.file_name().to_string_lossy()))
             .map(|d| FsVoiceSample {
@@ -181,8 +185,10 @@ impl FsVoiceData {
     pub fn get_samples(&self) -> eyre::Result<HashMap<BasicEmotion, Vec<FsVoiceSample>>> {
         let mut output = HashMap::new();
         let itr = walkdir::WalkDir::new(&self.dir)
+            .min_depth(1)
+            .max_depth(2)
             .into_iter()
-            .filter_entry(|d| d.file_type().is_file())
+            .filter_entry(is_wav)
             .flatten()
             .flat_map(|d| {
                 let emotion = BasicEmotion::from_file_name(&d.file_name().to_string_lossy())?;
@@ -198,5 +204,27 @@ impl FsVoiceData {
         }
         
         Ok(output)
+    }
+}
+
+fn is_wav(d: &DirEntry) -> bool {
+    d.file_type().is_file() && d.path().extension().map(|e| e.to_string_lossy() == "wav").unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{Config, SharedConfig};
+    use crate::system::voice_manager::{VoiceDestination, VoiceManager};
+
+    #[tokio::test]
+    pub async fn test_name() {
+        let mut conf = crate::config::initialise_config().unwrap();
+        let conf = SharedConfig::new(conf);
+        
+        let mut man = VoiceManager::new(conf);
+        
+        let t = man.get_voice(VoiceDestination::Global, "Baphomet").unwrap();
+        println!("{:#?}", t.get_samples().unwrap());
+        println!("T: {:#?}", man.get_global_voices())
     }
 }
