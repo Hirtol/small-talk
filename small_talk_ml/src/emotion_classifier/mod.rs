@@ -114,12 +114,13 @@ pub enum BasicEmotion {
 
 impl BasicEmotion {
     pub fn matches_file(&self, file_name: &str) -> bool {
-        file_name.contains(BASIC_EMOTIONS[*self as usize])
+        file_name.to_lowercase().contains(BASIC_EMOTIONS[*self as usize])
     }
     
     pub fn from_file_name(file_name: &str) -> Option<BasicEmotion> {
+        let lower_case = file_name.to_lowercase();
         for (i, emotion) in BASIC_EMOTIONS.iter().enumerate() {
-            if file_name.contains(emotion) {
+            if lower_case.contains(emotion) {
                 return BasicEmotion::try_from(i as i32).ok()
             }
         }

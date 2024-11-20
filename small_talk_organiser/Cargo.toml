@@ -1,29 +1,20 @@
 [package]
-name = "small_talk"
+name = "small_talk_organiser"
 version = "0.1.0"
 edition = "2021"
-description = "TTS api for game voicing"
-repository = "https://github.com/Hirtol/small-talk"
-license = "MIT"
-
-[lib]
-doctest = false
-path = "src/lib.rs"
-
-[[bin]]
-path = "src/main.rs"
-name = "small_talk"
 
 [dependencies]
 color-eyre = "0.6"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+indicatif = "0.17.8"
+tracing-indicatif = "0.3.6"
 
 eyre.workspace = true
 thiserror.workspace = true
 error_set.workspace = true
 itertools = { workspace = true }
-papaya = { version = "0.1.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
@@ -53,6 +44,12 @@ dotenv = "0.15"
 platform-dirs = "0.3"
 toml = "0.8"
 
-# rodio for playback!
 # ML
-small_talk_ml = {path = "../small_talk_ml"}
+small_talk_ml = { path = "../small_talk_ml" }
+small_talk = { path = "../small_talk" }
+#small_talk_whisper = { path = "../small_talk_whisper"}
+libloading = "0.8.5"
+#whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", features = []}
+hound = { version = "3.5.1" }
+kalosm = { version = "0.3.2", features = ["sound"] }
+kalosm-common = "0.3.3"

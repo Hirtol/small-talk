@@ -72,6 +72,19 @@ impl LLamaEmbedder {
             batch,
         })
     }
+    
+    /// Create a new embedding context with sensible defaults.
+    pub fn new_default(model_path: impl AsRef<Path>,) -> eyre::Result<Self> {
+        let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
+        let ctx_params = LlamaContextParams::default()
+            .with_n_threads(16)
+            .with_n_threads_batch(16)
+            .with_n_ctx(None) // Load from model
+            .with_n_batch(512)
+            .with_embeddings(true);
+        
+        Self::new(model_path, model_params, ctx_params, None)
+    }
 
     /// Tokenize the given texts using the default `LLama.CPP` tokenizer for the current model.
     pub fn tokenize(
