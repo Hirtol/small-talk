@@ -100,7 +100,7 @@ pub enum VoiceDestination<'a> {
     Game(&'a str)
 }
 
-impl<'a> VoiceDestination<'a> {
+impl VoiceDestination<'_> {
     pub fn to_path(&self, conf: &Config) -> PathBuf {
         match self {
             VoiceDestination::Global => {

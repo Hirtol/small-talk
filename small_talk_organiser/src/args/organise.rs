@@ -138,28 +138,28 @@ impl OrganiseCommand {
                     .into_samples::<i16>()
                     .flatten()
                     .collect_vec();
-                
+
                 if data.is_empty() {
                     tracing::error!("Empty sample set");
                     continue;
                 }
-                
+
                 let full_text = unsafe { parse_fn(whisper, data.as_ptr(), data.len()) }.into_string()?;
 
                 let emotion = emotion_classifier
-                    .infer([&full_text])?
+                    .infer([&full_text.trim()])?
                     .into_iter()
                     .next()
                     .context("Impossible")?;
 
                 tracing::debug!("Finished sample, emotion: {emotion:?} for text: {full_text:?}");
-                
+
                 let sam = VoiceSample {
                     emotion,
-                    spoken_text: Some(full_text),
+                    spoken_text: Some(full_text.trim().into()),
                     data: std::fs::read(sample)?,
                 };
-                
+
                 voice_man.store_voice_samples(destination.clone(), &voice_name, vec![sam])?;
             }
         }
