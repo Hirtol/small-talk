@@ -18,6 +18,9 @@ async fn main() -> eyre::Result<()> {
         SubCommands::Organise(solv) => {
             solv.run(conf).await?;
         }
+        SubCommands::AllTalk(all) => {
+            all.run(conf).await?;
+        }
     }
 
     tracing::info!(

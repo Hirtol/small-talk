@@ -6,7 +6,9 @@ use serde::de::DeserializeOwned;
 use api::{AllTalkApi, AllTalkSettings};
 
 pub mod api;
+pub mod local;
 
+#[derive(Debug, Clone)]
 pub struct AllTalkConfig {
     address: Url,
 }

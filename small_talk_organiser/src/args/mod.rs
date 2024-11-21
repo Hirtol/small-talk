@@ -1,6 +1,9 @@
+use crate::args::alltalk::AllTalkCommand;
 use crate::args::organise::OrganiseCommand;
 
 pub mod organise;
+pub mod alltalk;
+
 #[derive(clap::Parser, Debug)]
 #[clap(version, about)]
 pub struct ClapArgs {
@@ -14,4 +17,6 @@ pub enum SubCommands {
     #[clap(arg_required_else_help(true))]
     #[clap(alias = "o")]
     Organise(OrganiseCommand),
+    #[clap(alias = "a")]
+    AllTalk(AllTalkCommand),
 }

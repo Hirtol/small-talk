@@ -223,7 +223,7 @@ mod tests {
         
         let mut man = VoiceManager::new(conf);
         
-        let t = man.get_voice(VoiceDestination::Global, "Baphomet").unwrap();
+        let t = man.get_voice(VoiceDestination::Global, "BG3Narrator").unwrap();
         println!("{:#?}", t.get_samples().unwrap());
         println!("T: {:#?}", man.get_global_voices())
     }
