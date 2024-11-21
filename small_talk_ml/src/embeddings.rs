@@ -42,10 +42,10 @@ impl LLamaEmbedder {
         ctx_params: LlamaContextParams,
         n_batch: Option<u32>,
     ) -> eyre::Result<Self> {
-        let mut backend = LLAMA_BACKEND.lock()?;
+        let mut backend = LLAMA_BACKEND.lock().unwrap();
         backend.void_logs();
 
-        let model = LlamaModel::load_from_file(backend, model_path, &model_params)?;
+        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)?;
 
         let ctx_params = ctx_params.with_embeddings(true);
         let ctx_params = if let Some(n_batch) = n_batch {
@@ -55,7 +55,7 @@ impl LLamaEmbedder {
         };
         let cell = LlamaCell::try_new(model, |model| {
             model
-                .new_context(backend, ctx_params)
+                .new_context(&backend, ctx_params)
                 .context("unable to create the llama_context")
         })?;
 

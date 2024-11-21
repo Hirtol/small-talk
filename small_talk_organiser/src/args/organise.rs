@@ -113,18 +113,7 @@ impl OrganiseCommand {
             classifier_path.join("ggml-model-Q4_k.gguf"),
             device,
         )?;
-
-        let real_whisper = config
-            .dirs
-            .model_path()
-            .join("whisper")
-            .join("ggml")
-            .join("ggml-tiny.en-q8_0.bin");
-        let model_path = CString::new(real_whisper.to_str().context("Failed to convert to string")?)?;
-        let create_fn = &external_whisp.whisper_create;
-        let parse_fn = &external_whisp.whisper_parse;
-        let free_fn = &external_whisp.whisper_free;
-        let whisper = unsafe { create_fn(model_path.as_ptr()) };
+        
         let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
         let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();
 
@@ -147,10 +136,7 @@ impl OrganiseCommand {
                     continue;
                 }
 
-                // let full_text = unsafe { parse_fn(whisper, data.as_ptr(), data.len()) }.into_string()?;
-                let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap();
-
-                let full_text = full_text.to_string();
+                let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
 
                 let emotion = emotion_classifier
                     .infer([&full_text.trim()])?
@@ -168,10 +154,6 @@ impl OrganiseCommand {
 
                 voice_man.store_voice_samples(destination.clone(), &voice_name, vec![sam])?;
             }
-        }
-
-        unsafe {
-            free_fn(whisper);
         }
 
         Ok(())
