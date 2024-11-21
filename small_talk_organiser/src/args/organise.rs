@@ -19,6 +19,7 @@ use std::{
     io::BufReader,
     path::PathBuf,
 };
+use faster_whisper_rs::config::{WhisperConfig, WhisperConfigBuilder};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {
@@ -124,6 +125,8 @@ impl OrganiseCommand {
         let parse_fn = &external_whisp.whisper_parse;
         let free_fn = &external_whisp.whisper_free;
         let whisper = unsafe { create_fn(model_path.as_ptr()) };
+        let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
+        let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();
 
         let total_samples_to_process = queue.values().map(|d| d.len()).sum::<usize>();
 
@@ -144,7 +147,10 @@ impl OrganiseCommand {
                     continue;
                 }
 
-                let full_text = unsafe { parse_fn(whisper, data.as_ptr(), data.len()) }.into_string()?;
+                // let full_text = unsafe { parse_fn(whisper, data.as_ptr(), data.len()) }.into_string()?;
+                let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap();
+
+                let full_text = full_text.to_string();
 
                 let emotion = emotion_classifier
                     .infer([&full_text.trim()])?

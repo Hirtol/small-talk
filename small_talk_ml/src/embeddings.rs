@@ -8,6 +8,8 @@ use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::token::LlamaToken;
 
+pub static LLAMA_BACKEND: std::sync::LazyLock<std::sync::Mutex<LlamaBackend>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(LlamaBackend::init().unwrap()));
+
 self_cell::self_cell!(
     pub struct LlamaCell {
         owner: LlamaModel,
@@ -17,7 +19,6 @@ self_cell::self_cell!(
 );
 
 pub struct LLamaEmbedder {
-    backend: LlamaBackend,
     model: LlamaCell,
     batch: LlamaBatch,
 }
@@ -41,10 +42,10 @@ impl LLamaEmbedder {
         ctx_params: LlamaContextParams,
         n_batch: Option<u32>,
     ) -> eyre::Result<Self> {
-        let mut backend = LlamaBackend::init().unwrap_or(LlamaBackend {});
+        let mut backend = LLAMA_BACKEND.lock()?;
         backend.void_logs();
 
-        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)?;
+        let model = LlamaModel::load_from_file(backend, model_path, &model_params)?;
 
         let ctx_params = ctx_params.with_embeddings(true);
         let ctx_params = if let Some(n_batch) = n_batch {
@@ -54,7 +55,7 @@ impl LLamaEmbedder {
         };
         let cell = LlamaCell::try_new(model, |model| {
             model
-                .new_context(&backend, ctx_params)
+                .new_context(backend, ctx_params)
                 .context("unable to create the llama_context")
         })?;
 
@@ -67,14 +68,13 @@ impl LLamaEmbedder {
         let batch = LlamaBatch::new(n_batch.unwrap_or(n_ctx) as usize, 1);
 
         Ok(Self {
-            backend,
             model: cell,
             batch,
         })
     }
     
     /// Create a new embedding context with sensible defaults.
-    pub fn new_default(model_path: impl AsRef<Path>,) -> eyre::Result<Self> {
+    pub fn new_default(model_path: impl AsRef<Path>) -> eyre::Result<Self> {
         let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
         let ctx_params = LlamaContextParams::default()
             .with_n_threads(16)
