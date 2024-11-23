@@ -56,3 +56,4 @@ toml = "0.8"
 # rodio for playback!
 # ML
 small_talk_ml = {path = "../small_talk_ml"}
+process-wrap = { version = "8.0.2", features = ["tokio1"] }

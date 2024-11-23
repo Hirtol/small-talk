@@ -4,24 +4,20 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
 };
+use std::time::Duration;
+use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
     sync,
 };
 
-pub struct LocalAllTalk {
-    instance_path: PathBuf,
-    config: AllTalkConfig,
-    state: Option<TemporaryState>,
-    recv: sync::mpsc::Receiver<AllTalkMessage>,
+#[derive(Debug, Clone)]
+pub struct LocalAllTalkConfig {
+    pub timeout: Duration,
+    pub api: AllTalkConfig,
 }
 
-struct TemporaryState {
-    api: AllTalkApi,
-    process: Child,
-    last_access: std::time::Instant,
-}
-
+#[derive(Debug, Clone)]
 pub struct LocalAllTalkHandle {
     pub send: tokio::sync::mpsc::Sender<AllTalkMessage>,
 }
@@ -35,8 +31,9 @@ pub enum AllTalkMessage {
 }
 
 impl LocalAllTalkHandle {
-    pub fn new(instance_path: impl Into<PathBuf>, config: AllTalkConfig) -> eyre::Result<Self> {
-        // Small amount of back-pressure
+    /// Create and start a new [LocalAllTalk] actor, returning the cloneable handle to the actor in the process.
+    pub fn new(instance_path: impl Into<PathBuf>, config: LocalAllTalkConfig) -> eyre::Result<Self> {
+        // Small amount before we exert back-pressure
         let (send, recv) = sync::mpsc::channel(10);
         let actor = LocalAllTalk {
             instance_path: instance_path.into(),
@@ -55,6 +52,19 @@ impl LocalAllTalkHandle {
     }
 }
 
+pub struct LocalAllTalk {
+    instance_path: PathBuf,
+    config: LocalAllTalkConfig,
+    state: Option<TemporaryState>,
+    recv: sync::mpsc::Receiver<AllTalkMessage>,
+}
+
+struct TemporaryState {
+    api: AllTalkApi,
+    process: Box<dyn TokioChildWrapper>,
+    last_access: std::time::Instant,
+}
+
 impl LocalAllTalk {
 
     /// Start the actor, this future should be `tokio::spawn`ed.
@@ -65,7 +75,7 @@ impl LocalAllTalk {
             let instance_last = self.state.as_ref().map(|v| v.last_access);
             // If we have state we need to try to drop it after a while
             if let Some(last_access) = instance_last {
-                let timeout = last_access + std::time::Duration::from_secs(30);
+                let timeout = last_access + self.config.timeout;
 
                 tokio::select! {
                     Some(msg) = self.recv.recv() => {
@@ -73,10 +83,10 @@ impl LocalAllTalk {
                     },
                     _ = tokio::time::sleep_until(timeout.into()) => {
                         if self.state.as_ref().map(|v| v.last_access < timeout).unwrap_or_default() {
-                            println!("Dropping state");
+                            tracing::debug!("Timeout expired, dropping local AllTalk state");
                             // Drop the state, killing the sub-process
                             // Safe to do as we know that it won't be generating for us since we have exclusive access.
-                            self.state.take();
+                            self.kill_state().await?;
                         }
                     }
                     else => break,
@@ -93,21 +103,20 @@ impl LocalAllTalk {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn handle_message(&mut self, message: AllTalkMessage) -> eyre::Result<()> {
         match message {
             AllTalkMessage::StartInstance => {
                 self.verify_state().await?;
             }
             AllTalkMessage::StopInstance => {
-                let Some(mut val) = self.state.take() else {
-                    return Ok(());
-                };
-                val.process.kill().await?;
+                self.kill_state().await?;
             }
         }
         Ok(())
     }
 
+    /// Ensure a running AllTalk instance exists.
     async fn verify_state(&mut self) -> eyre::Result<()> {
         if self.state.is_none() {
             self.initialise_state().await
@@ -115,13 +124,24 @@ impl LocalAllTalk {
             Ok(())
         }
     }
+    
+    /// Kill the current AllTalk instance.
+    async fn kill_state(&mut self) -> eyre::Result<()> {
+        let Some(mut val) = self.state.take() else {
+            return Ok(());
+        };
+        let kill_future = Box::into_pin(val.process.kill());
+        kill_future.await?;
+        Ok(())
+    }
 
+    /// Force create and replace the current state by creating a new AllTalk instance.
     #[tracing::instrument(skip(self))]
     async fn initialise_state(&mut self) -> eyre::Result<()> {
         let child = Self::start_alltalk(&self.instance_path).await?;
 
         self.state = Some(TemporaryState {
-            api: AllTalkApi::new(self.config.clone())?,
+            api: AllTalkApi::new(self.config.api.clone())?,
             process: child,
             last_access: std::time::Instant::now(),
         });
@@ -129,20 +149,32 @@ impl LocalAllTalk {
         Ok(())
     }
 
+    /// Start the AllTalk instance located in `path`.
+    ///
+    /// Note that this spawns a sub-process.
     #[tracing::instrument]
-    async fn start_alltalk(path: &Path) -> eyre::Result<Child> {
-        // tracing::debug!("Attempting to start AllTalk process");
-        println!("Attempting to start AllTalk process");
+    async fn start_alltalk(path: &Path) -> eyre::Result<Box<dyn TokioChildWrapper>> {
+        tracing::debug!("Attempting to start AllTalk process");
         let start_bat = path.join("start_alltalk.bat");
 
-        let process = Command::new("cmd")
-            .args(["/C", &start_bat.to_string_lossy()])
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", &start_bat.to_string_lossy()])
             .kill_on_drop(true)
             .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn();
+            .stderr(Stdio::inherit());
+        let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
+        wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
-        match process {
+        #[cfg(unix)]
+        {
+            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        }
+        #[cfg(windows)]
+        {
+            wrapped.wrap(process_wrap::tokio::JobObject);
+        }
+
+        match wrapped.spawn() {
             Ok(child) => Ok(child),
             Err(e) => {
                 eyre::bail!("Failed to execute batch file: {}", e);
@@ -155,11 +187,15 @@ impl LocalAllTalk {
 mod tests {
     use std::time::Duration;
     use crate::system::tts_backends::alltalk::AllTalkConfig;
-    use crate::system::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkHandle};
+    use crate::system::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkConfig, LocalAllTalkHandle};
 
     #[tokio::test]
     pub async fn basic_test() {
-        let handle = LocalAllTalkHandle::new(r"G:\TTS\alltalk_tts\", AllTalkConfig::new("localhost:7581".try_into().unwrap())).unwrap();
+        let cfg = LocalAllTalkConfig {
+            timeout: Duration::from_secs(2),
+            api: AllTalkConfig::new("localhost:7581".try_into().unwrap()),
+        };
+        let handle = LocalAllTalkHandle::new(r"G:\TTS\alltalk_tts\", ).unwrap();
         
         handle.send.send(AllTalkMessage::StartInstance).await.unwrap();
         
