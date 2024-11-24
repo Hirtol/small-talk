@@ -123,12 +123,20 @@ impl LocalAllTalk {
                 self.kill_state().await?;
             }
             AllTalkMessage::TtsRequest(request, response) => {
+                let voice_path = self.voices_path();
                 let state = self.verify_state().await?;
-                let output_file = crate::system::utils::random_file_name(24, "wav");
+                let output_file = crate::system::utils::random_file_name(24, "wav".into());
+                // We have to move (hardlink) the sample to the AllTalk voices dir
+                let sample_name = crate::system::utils::random_file_name(24, None);
+                let input_file = request.voice_reference[0].link_to_name(voice_path, &sample_name)?;
+                
                 let alltalk_req = super::api::TtsRequest {
                     text_input: request.gen_text,
                     text_filtering: None,
-                    character_voice_gen: "".to_string(),
+                    character_voice_gen: input_file.sample.file_name()
+                        .context("Could not get filename")?
+                        .to_string_lossy()
+                        .into_owned(),
                     rvccharacter_voice_gen: None,
                     rvccharacter_pitch: None,
                     narrator_enabled: None,
@@ -152,6 +160,12 @@ impl LocalAllTalk {
                 let took = now.elapsed();
                 let gen_path = PathBuf::from(tts_response.output_file_path);
                 
+                // Clear up the sample which we linked above.
+                tokio::fs::remove_file(input_file.sample).await?;
+                if let Some(text) = input_file.spoken_text {
+                    tokio::fs::remove_file(text).await?;
+                }
+                
                 let _ = response.send(TtsResponse {
                     gen_time: took,
                     result: TtsResult::File(gen_path),
@@ -161,6 +175,10 @@ impl LocalAllTalk {
             }
         }
         Ok(())
+    }
+    
+    fn voices_path(&self) -> PathBuf {
+        self.instance_path.join("voices")
     }
 
     /// Ensure a running AllTalk instance exists.

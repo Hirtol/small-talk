@@ -32,10 +32,6 @@ impl TtsSystem {
     }
 }
 
-pub struct QuickRelease<T> {
-    inner: Option<T>
-}
-
 pub mod dirs {
     use std::path::PathBuf;
     use path_abs::PathOps;

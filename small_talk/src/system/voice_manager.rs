@@ -3,7 +3,7 @@ use crate::config::{Config, SharedConfig};
 use itertools::Itertools;
 use small_talk_ml::emotion_classifier::BasicEmotion;
 use std::path::PathBuf;
-use path_abs::PathOps;
+use path_abs::{PathInfo, PathOps};
 use walkdir::DirEntry;
 
 #[derive(Debug, Clone)]
@@ -127,8 +127,41 @@ pub struct FsVoiceData {
 
 #[derive(Debug, Clone)]
 pub struct FsVoiceSample {
+    /// The emotion voiced by the sample.
     pub emotion: BasicEmotion,
+    /// Optional reference to the txt file containing the spoken words in the given sample.
+    pub spoken_text: Option<PathBuf>,
+    /// The path of the sample.
     pub sample: PathBuf,
+}
+
+impl FsVoiceSample {
+    /// Hard link this voice sample to the given directory, and use the given `name`
+    /// as the reference.
+    /// 
+    /// Both directories are expected to be on the same filesystem.
+    pub fn link_to_name(&self, dir: PathBuf, name: &str) -> eyre::Result<FsVoiceSample> {
+        let sample_ext = self.sample.extension();
+        let target_sample = dir.join(name).with_extension(sample_ext.unwrap_or("wav".as_ref()));
+        std::fs::hard_link(&self.sample, &target_sample)?;
+        
+        let target_spoken = if let Some(spoken) = &self.spoken_text {
+            let target_text_name = format!("{name}.reference.txt");
+            let target_spoken = dir.join(target_text_name);
+            
+            std::fs::hard_link(spoken, &target_spoken)?;
+            Some(target_spoken)
+        } else {
+            None
+        };
+        
+        Ok(FsVoiceSample {
+            emotion: self.emotion,
+            spoken_text: target_spoken,
+            sample: target_sample,
+        })
+        
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -175,9 +208,13 @@ impl FsVoiceData {
             .filter_entry(is_wav)
             .flatten()
             .filter(|d| emotion.matches_file(&d.file_name().to_string_lossy()))
-            .map(|d| FsVoiceSample {
-                emotion,
-                sample: d.into_path(),
+            .map(|d| {
+                let text = d.path().with_extension("txt");
+                FsVoiceSample {
+                    emotion,
+                    spoken_text: text.exists().then_some(text),
+                    sample: d.into_path(),
+                }
             })
             .collect())
     }
@@ -191,9 +228,11 @@ impl FsVoiceData {
             .filter_entry(is_wav)
             .flatten()
             .flat_map(|d| {
+                let text = d.path().with_extension("txt");
                 let emotion = BasicEmotion::from_file_name(&d.file_name().to_string_lossy())?;
                 Some((emotion, FsVoiceSample {
                     emotion,
+                    spoken_text: text.exists().then_some(text),
                     sample: d.into_path(),
                 }))
             });

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::time::Duration;
+use crate::system::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
 
@@ -13,10 +14,12 @@ pub struct TtsRequest {
     /// If only one sample is needed simply pick the first
     ///
     /// These should not be moved/deleted, if needed simply hardlink these to a new location 
-    pub voice_reference: Vec<PathBuf>,
+    pub voice_reference: Vec<FsVoiceSample>,
     /// The playback speed of the voice
     pub speed: Option<f32>,
 }
+
+
 
 #[derive(Debug, Clone)]
 pub struct TtsResponse {
