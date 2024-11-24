@@ -10,6 +10,7 @@ use tokio::{
     process::{Child, Command},
     sync,
 };
+use crate::system::tts_backends::{TtsRequest, TtsResponse, TtsResult};
 
 #[derive(Debug, Clone)]
 pub struct LocalAllTalkConfig {
@@ -22,12 +23,13 @@ pub struct LocalAllTalkHandle {
     pub send: tokio::sync::mpsc::Sender<AllTalkMessage>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AllTalkMessage {
     /// Request the immediate start of the child process
     StartInstance,
     /// Request the immediate stop of the child process
     StopInstance,
+    TtsRequest(TtsRequest, tokio::sync::oneshot::Sender<TtsResponse>),
 }
 
 impl LocalAllTalkHandle {
@@ -49,6 +51,14 @@ impl LocalAllTalkHandle {
         });
 
         Ok(Self { send })
+    }
+    
+    /// Send a TTS request to the local AllTalk instance
+    pub async fn submit_tts_request(&self, request: TtsRequest) -> eyre::Result<TtsResponse> {
+        let (send, recv) = tokio::sync::oneshot::channel();
+        self.send.send(AllTalkMessage::TtsRequest(request, send)).await?;
+
+        Ok(recv.await?)
     }
 }
 
@@ -112,16 +122,54 @@ impl LocalAllTalk {
             AllTalkMessage::StopInstance => {
                 self.kill_state().await?;
             }
+            AllTalkMessage::TtsRequest(request, response) => {
+                let state = self.verify_state().await?;
+                let output_file = crate::system::utils::random_file_name(24, "wav");
+                let alltalk_req = super::api::TtsRequest {
+                    text_input: request.gen_text,
+                    text_filtering: None,
+                    character_voice_gen: "".to_string(),
+                    rvccharacter_voice_gen: None,
+                    rvccharacter_pitch: None,
+                    narrator_enabled: None,
+                    narrator_voice_gen: None,
+                    rvcnarrator_voice_gen: None,
+                    rvcnarrator_pitch: None,
+                    text_not_inside: None,
+                    language: request.language,
+                    output_file_name: output_file,
+                    output_file_timestamp: None,
+                    autoplay: None,
+                    autoplay_volume: None,
+                    speed: request.speed,
+                    pitch: None,
+                    temperature: None,
+                    repetition_penalty: None,
+                };
+                
+                let now = std::time::Instant::now();
+                let tts_response = state.api.tts_request(alltalk_req).await?;
+                let took = now.elapsed();
+                let gen_path = PathBuf::from(tts_response.output_file_path);
+                
+                let _ = response.send(TtsResponse {
+                    gen_time: took,
+                    result: TtsResult::File(gen_path),
+                });
+                
+                tracing::trace!(?took, "Finished handling of TTS request");
+            }
         }
         Ok(())
     }
 
     /// Ensure a running AllTalk instance exists.
-    async fn verify_state(&mut self) -> eyre::Result<()> {
+    async fn verify_state(&mut self) -> eyre::Result<&TemporaryState> {
+        // Borrow checker prevents us from doing this nicely...
         if self.state.is_none() {
             self.initialise_state().await
         } else {
-            Ok(())
+            self.state.as_ref().context("Impossible")
         }
     }
     
@@ -137,16 +185,14 @@ impl LocalAllTalk {
 
     /// Force create and replace the current state by creating a new AllTalk instance.
     #[tracing::instrument(skip(self))]
-    async fn initialise_state(&mut self) -> eyre::Result<()> {
+    async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
         let child = Self::start_alltalk(&self.instance_path).await?;
 
-        self.state = Some(TemporaryState {
+        Ok(self.state.insert(TemporaryState {
             api: AllTalkApi::new(self.config.api.clone())?,
             process: child,
             last_access: std::time::Instant::now(),
-        });
-
-        Ok(())
+        }))
     }
 
     /// Start the AllTalk instance located in `path`.
@@ -195,7 +241,7 @@ mod tests {
             timeout: Duration::from_secs(2),
             api: AllTalkConfig::new("localhost:7581".try_into().unwrap()),
         };
-        let handle = LocalAllTalkHandle::new(r"G:\TTS\alltalk_tts\", ).unwrap();
+        let handle = LocalAllTalkHandle::new(r"G:\TTS\alltalk_tts\", cfg).unwrap();
         
         handle.send.send(AllTalkMessage::StartInstance).await.unwrap();
         

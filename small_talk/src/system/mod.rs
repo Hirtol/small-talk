@@ -10,6 +10,7 @@ mod tts_backends;
 pub mod data;
 pub mod session;
 pub mod voice_manager;
+pub mod utils;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
