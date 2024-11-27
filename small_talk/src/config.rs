@@ -52,6 +52,7 @@ pub struct Config {
     pub app: ServerConfig,
     /// All directory related configs
     pub dirs: DirectoryConfig,
+    #[serde(default)]
     pub tts: TtsConfig,
 }
 

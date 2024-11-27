@@ -2,63 +2,52 @@ use std::path::PathBuf;
 use aide::axum::IntoApiResponse;
 use aide::axum::routing::{post, post_with};
 use aide::transform::TransformOperation;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::handler::Handler;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::api::{ApiResult, ApiRouter, AppState};
-use crate::api::error::ApiError;
 use crate::api::extractor::Json;
-use crate::system::Voice;
+use crate::api::session::Session;
+use crate::system::{TtsResponse, Voice};
 
 pub fn config() -> ApiRouter<AppState> {
-    ApiRouter::new().nest("/tts", 
+    ApiRouter::new().nest("/session/:game_name",
                           ApiRouter::new()
-                              .api_route("/request", post_with(tts_request, tts_request_docs)),
+                              .api_route("/start", post_with(session_start, session_start_docs))
+                              .api_route("/stop", post_with(session_stop, session_stop_docs))
+                              .merge(super::tts::config()),
     )
 }
 
-#[derive(Serialize, Debug, JsonSchema)]
-pub struct TtsResponse {
-    pub file_path: PathBuf,
-    pub data_url: String,
-    pub voice_used: Voice,
-}
-
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
-pub struct TtsRequest {
-    pub text: String,
-    pub voice: TtsVoice
-}
-
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
-pub enum TtsVoice {
-    Set(String),
-    Random(RandomVoice),
-}
-
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
-pub struct RandomVoice {
-    gender: Gender,
-}
-
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
-pub enum Gender {
-    Male,
-    Female,
+#[derive(Debug, JsonSchema, Serialize, Deserialize)]
+pub struct ApiSessionStart {
+    /// The name of the game session, should equal the name of the game being played.
+    pub game_name: String,
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn tts_request(state: State<AppState>, request: Json<TtsRequest>) -> ApiResult<Json<TtsResponse>> {
-    // Ok(Json(TtsResponse {
-    //     file_path: Default::default(),
-    //     data_url: "".to_string(),
-    // }))
-    Err(ApiError::Other(eyre::eyre!("Fuck it")))
-    // todo!()
+pub async fn session_start(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<Session>> {
+    let _ = state.system.get_or_start_session(&game_name).await?;
+    
+    Ok(Session {
+        id: game_name,
+    }.into())
 }
 
-fn tts_request_docs(op: TransformOperation) -> TransformOperation {
-    op.description("Start a TTS request. This will only return upon the completion of the TTS generation.")
-        .response::<204, Json<TtsResponse>>()
+fn session_start_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Start a session, initialising a request queue and optional player")
+        .response::<204, Json<Session>>()
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn session_stop(state: State<AppState>, Json(request): Json<Session>) -> ApiResult<Json<Session>> {
+    state.system.stop_session(&request.id).await?;
+
+    Ok(request.into())
+}
+
+fn session_stop_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Stop a session, dropping any TTS requests still in the queue")
+        .response::<204, Json<Session>>()
 }

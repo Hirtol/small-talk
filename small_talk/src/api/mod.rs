@@ -15,7 +15,6 @@ use crate::system::{TtsSystem, TtsSystemHandle};
 mod extractor;
 pub mod error;
 pub mod session;
-pub mod tts;
 
 pub type ApiRouter<S = ()> = aide::axum::ApiRouter<S>;
 pub type ApiResult<T, E = ApiError> = Result<T, E>;

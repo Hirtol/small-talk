@@ -7,6 +7,7 @@ use eyre::ContextCompat;
 use path_abs::{PathInfo, PathOps};
 use rand::prelude::IteratorRandom;
 use rand::thread_rng;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
 use crate::system::{Gender, Voice};
@@ -103,7 +104,7 @@ impl VoiceManager {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct VoiceReference {
     pub name: Voice,
     pub location: VoiceDestination,
@@ -125,7 +126,7 @@ impl VoiceReference {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum VoiceDestination {
     Global,
     Game(String)

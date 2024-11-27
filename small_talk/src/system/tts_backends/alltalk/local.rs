@@ -124,7 +124,7 @@ impl LocalAllTalk {
             AllTalkMessage::TtsRequest(request, response) => {
                 let voice_path = self.voices_path();
                 let state = self.verify_state().await?;
-                let output_file = crate::system::utils::random_file_name(24, "wav".into());
+                let output_file = crate::system::utils::random_file_name(24, None);
                 // We have to move (hardlink) the sample to the AllTalk voices dir
                 let sample_name = crate::system::utils::random_file_name(24, None);
                 let input_file = request.voice_reference[0].link_to_name(voice_path, &sample_name)?;
@@ -224,8 +224,8 @@ impl LocalAllTalk {
         let mut cmd = Command::new("cmd");
         cmd.args(["/C", &start_bat.to_string_lossy()])
             .kill_on_drop(true)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
         wrapped.wrap(process_wrap::tokio::KillOnDrop);
 

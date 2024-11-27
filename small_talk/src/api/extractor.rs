@@ -21,3 +21,9 @@ where
         axum::Json(self.0).into_response()
     }
 }
+
+impl<T> From<T> for Json<T> {
+    fn from(value: T) -> Self {
+        Json(value)
+    }
+}

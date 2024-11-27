@@ -22,6 +22,7 @@ use tokio::{
     sync::{broadcast::error::RecvError, Mutex},
 };
 use tokio::sync::broadcast;
+use crate::system::TtsVoice;
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
@@ -122,31 +123,31 @@ pub enum GameSessionMessage {
 }
 
 pub struct GameSessionActor {
-    pub recv: tokio::sync::mpsc::Receiver<GameSessionMessage>,
-    pub b_recv: broadcast::Receiver<Arc<TtsResponse>>,
-    pub data: Arc<GameSharedData>,
+    recv: tokio::sync::mpsc::Receiver<GameSessionMessage>,
+    b_recv: broadcast::Receiver<Arc<TtsResponse>>,
+    data: Arc<GameSharedData>,
 
-    pub notify: tokio::sync::mpsc::Sender<()>,
+    notify: tokio::sync::mpsc::Sender<()>,
 }
 
 struct GameQueueActor {
-    pub broadcast: tokio::sync::broadcast::Sender<Arc<TtsResponse>>,
+    broadcast: tokio::sync::broadcast::Sender<Arc<TtsResponse>>,
 
-    pub tts: TtsBackend,
-    pub data: Arc<GameSharedData>,
-    pub notify: tokio::sync::mpsc::Receiver<()>,
+    tts: TtsBackend,
+    data: Arc<GameSharedData>,
+    notify: tokio::sync::mpsc::Receiver<()>,
 
-    pub generations_count: usize,
+    generations_count: usize,
 }
 
 struct GameSharedData {
-    pub config: SharedConfig,
+    config: SharedConfig,
 
-    pub voice_manager: Arc<VoiceManager>,
-    pub game_data: GameData,
+    voice_manager: Arc<VoiceManager>,
+    game_data: GameData,
     /// Current queue of requests
-    pub queue: Arc<Mutex<VecDeque<VoiceLine>>>,
-    pub line_cache: Arc<Mutex<LineCache>>,
+    queue: Arc<Mutex<VecDeque<VoiceLine>>>,
+    line_cache: Arc<Mutex<LineCache>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -227,7 +228,7 @@ impl GameSessionActor {
         game_name: &str,
         config: &SharedConfig,
     ) -> eyre::Result<(GameData, LineCache)> {
-        let dir = super::dirs::game_dir(&config, game_name);
+        let dir = super::dirs::game_dir(config, game_name);
 
         if tokio::fs::try_exists(&dir).await? {
             Self::load_from_dir(&dir).await
@@ -302,7 +303,14 @@ impl GameQueueActor {
         if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
             return Ok(response);
         }
-        let voice_to_use = self.data.map_character(&voice_line.person)?;
+        let voice_to_use = match &voice_line.person {
+            TtsVoice::ForceVoice(forced) => {
+                forced.clone()
+            }
+            TtsVoice::CharacterVoice(character) => {
+                self.data.map_character(character)?
+            }
+        };
 
         // TODO: Line emotion detection
         let voice = self.data.voice_manager.get_voice(&voice_to_use)?;
@@ -316,6 +324,7 @@ impl GameQueueActor {
             speed: None,
         };
         let response = self.tts.tts_request(voice_line.model, request).await?;
+        
         let out = self.transform_response(&voice_to_use, voice_line, response).await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
@@ -333,7 +342,7 @@ impl GameQueueActor {
         line: VoiceLine,
         response: BackendTtsResponse,
     ) -> eyre::Result<TtsResponse> {
-        let target_dir = self.data.line_cache_path();
+        let target_dir = self.data.line_cache_path().join(&voice.name);
         tokio::fs::create_dir_all(&target_dir).await?;
 
         match response.result {
@@ -341,7 +350,7 @@ impl GameQueueActor {
                 // TODO: Perhaps think of a better method to naming the generated lines
                 let current_time = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
                 let file_name = format!("{}.wav", current_time);
-                let target_voice_file = target_dir.join(&voice.name).join(&file_name);
+                let target_voice_file = target_dir.join(&file_name);
 
                 // Move the file to its permanent spot, and add it to the tracking
                 tokio::fs::rename(&temp_path, &target_voice_file).await?;
@@ -368,7 +377,14 @@ impl GameQueueActor {
 impl GameSharedData {
     #[tracing::instrument(skip(self))]
     async fn try_cache_retrieve(&self, voice_line: &VoiceLine) -> eyre::Result<Option<TtsResponse>> {
-        let voice_to_use = self.map_character(&voice_line.person)?;
+        let voice_to_use = match &voice_line.person {
+            TtsVoice::ForceVoice(forced) => {
+                forced.clone()
+            }
+            TtsVoice::CharacterVoice(character) => {
+                self.map_character(character)?
+            }
+        };;
 
         // First check if we have a cache reference
         if !voice_line.force_generate {

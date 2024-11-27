@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::system::TtsModel;
+use crate::system::voice_manager::VoiceReference;
 
 /// Internal name for a particular voice.
 pub type Voice = String;
@@ -13,7 +14,7 @@ pub type CharacterName = String;
 pub struct VoiceLine {
     pub line: String,
     /// The person who ought to voice the line
-    pub person: CharacterVoice,
+    pub person: TtsVoice,
     pub model: TtsModel,
     /// Force the generation of a new line, even if it already existed in the cache.
     pub force_generate: bool,
@@ -27,16 +28,10 @@ pub struct TtsResponse {
     pub voice_used: Voice,
 }
 
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
-pub struct TtsRequest {
-    pub text: String,
-    pub voice: TtsVoice
-}
-
-#[derive(Deserialize, Serialize, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Debug, JsonSchema, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum TtsVoice {
     /// Force the request to use the given [Voice]
-    ForceVoice(Voice),
+    ForceVoice(VoiceReference),
     /// Let the backend handle voice assignment for this character.
     CharacterVoice(CharacterVoice),
 }

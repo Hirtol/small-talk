@@ -21,22 +21,29 @@ impl AllTalkApi {
     }
 
     /// Check whether this AllTalk instance is ready.
+    #[tracing::instrument(skip(self))]
     pub async fn ready(&self) -> eyre::Result<bool> {
-        let body = self.client.get(self.url("/api/ready")?).send().await?;
-        Ok(body.text().await? == "Ready")
+        if let Ok(body) = self.client.get(self.url("/api/ready")?).send().await {
+            Ok(body.text().await? == "Ready")
+        } else {
+            Ok(false)
+        }
     }
-    
+
     /// Force AllTalk to reload from disk, namely used when adding new voices.
+    #[tracing::instrument(skip(self))]
     pub async fn reload_settings(&self) -> eyre::Result<()> {
         self.get("/api/reload_config").await
     }
 
     /// Retrieve the current settings from AllTalk
+    #[tracing::instrument(skip(self))]
     pub async fn current_settings(&self) -> eyre::Result<AllTalkSettings> {
         self.get("/api/currentsettings").await
     }
 
     /// Retrieve the voices which AllTalk currently has available
+    #[tracing::instrument(skip(self))]
     pub async fn voices(&self) -> eyre::Result<Voices> {
         self.get("/api/voices").await
     }
@@ -44,7 +51,9 @@ impl AllTalkApi {
     /// Send a request for a generation to the given API.
     /// 
     /// Returns the output path.
+    #[tracing::instrument(skip(self))]
     pub async fn tts_request(&self, request: TtsRequest) -> eyre::Result<TtsResponse> {
+        tracing::debug!("Following Request: {request:#?}");
         let response = self.client
             .post(self.url("/api/tts-generate")?)
             .form(&request)

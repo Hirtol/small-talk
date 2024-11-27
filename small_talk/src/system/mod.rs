@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 pub use data::*;
 use std::sync::Arc;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use crate::config::SharedConfig;
@@ -18,7 +19,7 @@ pub mod utils;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Hash, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TtsModel {
     F5,
     Xtts,
@@ -43,6 +44,7 @@ impl TtsSystem {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get_or_start_session(&self, game: &str) -> eyre::Result<GameSessionHandle> {
         let mut pin = self.sessions.lock().await;
         
@@ -55,9 +57,27 @@ impl TtsSystem {
             Ok(new_session)
         }
     }
+    
+    /// Stop the given session if it was started
+    /// 
+    /// Does nothing if no session for `game` was currently operational.
+    #[tracing::instrument(skip(self))]
+    pub async fn stop_session(&self, game: &str) -> eyre::Result<()> {
+        let mut pin = self.sessions.lock().await;
+        let _ = pin.remove(game);
+        
+        Ok(())
+    }
+    
     /// Send a TTS request to the given model.
     pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
         todo!()
+    }
+    
+    /// Shut the entire TTS backend down.
+    pub async fn shutdown(self) -> eyre::Result<()> {
+        drop(self);
+        Ok(())
     }
 }
 

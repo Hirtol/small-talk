@@ -34,8 +34,8 @@ impl Application {
 
         first_time::first_time_setup(&config).await?;
         let config = Arc::new(config);
-        
-        
+
+
         let all_talk_cfg = LocalAllTalkConfig {
             instance_path: config.tts.local_all_talk.clone(),
             timeout: Duration::from_secs(60),
@@ -84,6 +84,9 @@ impl Application {
             },
             res = server => res.map_err(|e| eyre::eyre!(e))
         };
+        
+        let tts = Arc::into_inner(self.voice).unwrap();
+        tts.shutdown().await?;
 
         result
     }
