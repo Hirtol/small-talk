@@ -34,6 +34,7 @@ axum-extra = { version = "0.9.6", features = [] }
 tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
 tower-http = { version = "0.6.1", features = ["full"] }
 reqwest = { version = "0.12.9", features = ["json"] }
+url = { version = "2.5.4", features = ["serde"] }
 
 axum-jsonschema = { version = "0.8.0", features = ["aide"] }
 aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
@@ -48,12 +49,14 @@ walkdir = "2.4"
 path_abs = { version = "0.5", default-features = false }
 dunce = "1.0"
 tempfile = "3.14.0"
+pathdiff = "0.2.3"
 
 # Conf
 config = { version = "0.14.1", features = ["toml"] }
 dotenv = "0.15"
 platform-dirs = "0.3"
 toml = "0.8"
+
 
 # rodio for playback!
 # ML

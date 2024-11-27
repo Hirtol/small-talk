@@ -8,7 +8,7 @@ use api::{AllTalkApi, AllTalkSettings};
 pub mod api;
 pub mod local;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllTalkConfig {
     address: Url,
 }

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
+use crate::system::tts_backends::alltalk::AllTalkConfig;
 
 pub type SharedConfig = Arc<Config>;
 
@@ -51,6 +52,14 @@ pub struct Config {
     pub app: ServerConfig,
     /// All directory related configs
     pub dirs: DirectoryConfig,
+    pub tts: TtsConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TtsConfig {
+    /// Directory containing an AllTalk instance.
+    pub local_all_talk: PathBuf,
+    pub alltalk_cfg: AllTalkConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -96,6 +105,16 @@ impl Default for DirectoryConfig {
         let app_dir = crate::get_app_dirs().config_dir;
         Self {
             appdata: app_dir.join("appdata"),
+        }
+    }
+}
+
+impl Default for TtsConfig {
+    fn default() -> Self {
+        let app_dir = crate::get_app_dirs().config_dir;
+        Self {
+            local_all_talk: app_dir.join("alltalk"),
+            alltalk_cfg: AllTalkConfig::new(url::Url::parse("http://localhost:7851/").unwrap()),
         }
     }
 }

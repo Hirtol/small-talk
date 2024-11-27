@@ -1,11 +1,40 @@
 use std::path::PathBuf;
 use std::time::Duration;
+use crate::system::tts_backends::alltalk::local::LocalAllTalkHandle;
+use crate::system::{TtsModel};
 use crate::system::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
 
+/// The collection of TTS backend handles.
 #[derive(Debug, Clone)]
-pub struct TtsRequest {
+pub struct TtsBackend {
+    pub xtts: LocalAllTalkHandle,
+}
+
+impl TtsBackend {
+    pub fn new(xtts_all_talk: LocalAllTalkHandle) -> Self {
+        Self {
+            xtts: xtts_all_talk,
+        }
+    }
+
+    /// Send a TTS request to the given model.
+    #[tracing::instrument(skip(self))]
+    pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
+        match model {
+            TtsModel::F5 => {
+                todo!()
+            }
+            TtsModel::Xtts => {
+                self.xtts.submit_tts_request(req).await
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendTtsRequest {
     /// Text to generate
     pub gen_text: String,
     /// Language of the generation task
@@ -19,10 +48,8 @@ pub struct TtsRequest {
     pub speed: Option<f32>,
 }
 
-
-
 #[derive(Debug, Clone)]
-pub struct TtsResponse {
+pub struct BackendTtsResponse {
     /// How long it took to generate the response
     pub gen_time: Duration,
     pub result: TtsResult

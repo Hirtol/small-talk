@@ -3,8 +3,13 @@ use crate::config::{Config, SharedConfig};
 use itertools::Itertools;
 use small_talk_ml::emotion_classifier::BasicEmotion;
 use std::path::PathBuf;
+use eyre::ContextCompat;
 use path_abs::{PathInfo, PathOps};
+use rand::prelude::IteratorRandom;
+use rand::thread_rng;
+use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
+use crate::system::{Gender, Voice};
 
 #[derive(Debug, Clone)]
 pub struct VoiceManager {
@@ -16,12 +21,12 @@ impl VoiceManager {
         Self { conf }
     }
 
-    pub fn get_voice(&self, dest: VoiceDestination, voice: &str) -> eyre::Result<FsVoiceData> {
-        let path = dest.to_path(&self.conf).join(voice);
+    pub fn get_voice(&self, voice: &VoiceReference) -> eyre::Result<FsVoiceData> {
+        let path = voice.location.to_path(&self.conf).join(&voice.name);
         if path.exists() {
             Ok(FsVoiceData {
                 dir: path,
-                name: voice.into(),
+                name: voice.name.clone(),
             })    
         } else {
             Err(eyre::eyre!("Voice does not exist"))
@@ -72,7 +77,11 @@ impl VoiceManager {
         std::fs::create_dir_all(&destination)?;
         
         let mut existing_samples = {
-            if let Ok(voice_data) = self.get_voice(dest.clone(), voice_name) {
+            let refs = VoiceReference {
+                name: voice_name.into(),
+                location: dest,
+            };
+            if let Ok(voice_data) = self.get_voice(&refs) {
                 voice_data.get_samples()?
             } else {
                 HashMap::default()
@@ -94,13 +103,35 @@ impl VoiceManager {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum VoiceDestination<'a> {
-    Global,
-    Game(&'a str)
+#[derive(Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct VoiceReference {
+    pub name: Voice,
+    pub location: VoiceDestination,
 }
 
-impl VoiceDestination<'_> {
+impl VoiceReference {
+    pub fn global(name: impl Into<Voice>) -> VoiceReference {
+        VoiceReference {
+            name: name.into(),
+            location: VoiceDestination::Global,
+        }
+    }
+    
+    pub fn game(name: impl Into<Voice>, game_name: impl Into<String>) -> VoiceReference {
+        VoiceReference {
+            name: name.into(),
+            location: VoiceDestination::Game(game_name.into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum VoiceDestination {
+    Global,
+    Game(String)
+}
+
+impl VoiceDestination {
     pub fn to_path(&self, conf: &Config) -> PathBuf {
         match self {
             VoiceDestination::Global => {
@@ -123,6 +154,14 @@ pub struct FsVoice {
 pub struct FsVoiceData {
     pub name: String,
     pub dir: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoiceSample {
+    pub emotion: BasicEmotion,
+    /// If there is spoken text present, list what it is
+    pub spoken_text: Option<String>,
+    pub data: Vec<u8>
 }
 
 #[derive(Debug, Clone)]
@@ -162,17 +201,7 @@ impl FsVoiceSample {
         })
         
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct VoiceSample {
-    pub emotion: BasicEmotion,
-    /// If there is spoken text present, list what it is
-    pub spoken_text: Option<String>,
-    pub data: Vec<u8>
-}
-
-impl FsVoiceSample {
+    
     /// Read the sample's data
     pub async fn data(&self) -> eyre::Result<Vec<u8>> {
         Ok(tokio::fs::read(&self.sample).await?)
@@ -219,6 +248,27 @@ impl FsVoiceData {
             .collect())
     }
     
+    /// Select any random sample in the dataset.
+    pub fn random_sample(&self) -> eyre::Result<FsVoiceSample> {
+        walkdir::WalkDir::new(&self.dir)
+            .min_depth(1)
+            .max_depth(2)
+            .into_iter()
+            .filter_entry(is_wav)
+            .flatten()
+            .flat_map(|d| {
+                let text = d.path().with_extension("txt");
+                let emotion = BasicEmotion::from_file_name(&d.file_name().to_string_lossy())?;
+                Some(FsVoiceSample {
+                    emotion,
+                    spoken_text: text.exists().then_some(text),
+                    sample: d.into_path(),
+                })
+            })
+            .choose(&mut thread_rng())
+            .context("No sample available")
+    }
+    
     pub fn get_samples(&self) -> eyre::Result<HashMap<BasicEmotion, Vec<FsVoiceSample>>> {
         let mut output = HashMap::new();
         let itr = walkdir::WalkDir::new(&self.dir)
@@ -253,7 +303,7 @@ fn is_wav(d: &DirEntry) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, SharedConfig};
-    use crate::system::voice_manager::{VoiceDestination, VoiceManager};
+    use crate::system::voice_manager::{VoiceDestination, VoiceManager, VoiceReference};
 
     #[tokio::test]
     pub async fn test_name() {
@@ -261,8 +311,9 @@ mod tests {
         let conf = SharedConfig::new(conf);
         
         let mut man = VoiceManager::new(conf);
+        let refs = VoiceReference::global("BG3Narrator");
         
-        let t = man.get_voice(VoiceDestination::Global, "BG3Narrator").unwrap();
+        let t = man.get_voice(&refs).unwrap();
         println!("{:#?}", t.get_samples().unwrap());
         println!("T: {:#?}", man.get_global_voices())
     }

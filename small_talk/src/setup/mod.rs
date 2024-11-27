@@ -15,6 +15,9 @@ use tower_http::trace::TraceLayer;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
 use crate::system::{TtsSystem, TtsSystemHandle};
+use crate::system::tts_backends::alltalk::AllTalkConfig;
+use crate::system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
+use crate::system::tts_backends::TtsBackend;
 
 mod first_time;
 
@@ -30,12 +33,21 @@ impl Application {
         let tcp = TcpListener::bind(config.app.bind_address()).await?;
 
         first_time::first_time_setup(&config).await?;
+        let config = Arc::new(config);
         
-        let handle = Arc::new(TtsSystem::new());
+        
+        let all_talk_cfg = LocalAllTalkConfig {
+            instance_path: config.tts.local_all_talk.clone(),
+            timeout: Duration::from_secs(60),
+            api: config.tts.alltalk_cfg.clone(),
+        };
+        let xtts = LocalAllTalkHandle::new(all_talk_cfg)?;
+        let backends = TtsBackend::new(xtts);
+        let handle = Arc::new(TtsSystem::new(config.clone(), backends));
         
         let result = Application {
             tcp,
-            config: Arc::new(config),
+            config,
             voice: handle
         };
 

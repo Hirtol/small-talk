@@ -1,4 +1,4 @@
-use crate::system::tts_backends::alltalk::{api::AllTalkApi, AllTalkConfig};
+use crate::system::tts_backends::alltalk::{api::AllTalkApi, AllTalkConfig, AllTalkTTS};
 use eyre::ContextCompat;
 use std::{
     path::{Path, PathBuf},
@@ -10,10 +10,11 @@ use tokio::{
     process::{Child, Command},
     sync,
 };
-use crate::system::tts_backends::{TtsRequest, TtsResponse, TtsResult};
+use crate::system::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
 
 #[derive(Debug, Clone)]
 pub struct LocalAllTalkConfig {
+    pub instance_path: PathBuf,
     pub timeout: Duration,
     pub api: AllTalkConfig,
 }
@@ -29,16 +30,15 @@ pub enum AllTalkMessage {
     StartInstance,
     /// Request the immediate stop of the child process
     StopInstance,
-    TtsRequest(TtsRequest, tokio::sync::oneshot::Sender<TtsResponse>),
+    TtsRequest(BackendTtsRequest, tokio::sync::oneshot::Sender<BackendTtsResponse>),
 }
 
 impl LocalAllTalkHandle {
     /// Create and start a new [LocalAllTalk] actor, returning the cloneable handle to the actor in the process.
-    pub fn new(instance_path: impl Into<PathBuf>, config: LocalAllTalkConfig) -> eyre::Result<Self> {
+    pub fn new(config: LocalAllTalkConfig) -> eyre::Result<Self> {
         // Small amount before we exert back-pressure
         let (send, recv) = sync::mpsc::channel(10);
         let actor = LocalAllTalk {
-            instance_path: instance_path.into(),
             config,
             state: None,
             recv,
@@ -46,7 +46,7 @@ impl LocalAllTalkHandle {
 
         tokio::task::spawn(async move {
             if let Err(e) = actor.run().await {
-                println!("LocalAllTalk stopped with error: {e}");
+                tracing::error!("LocalAllTalk stopped with error: {e}");
             }
         });
 
@@ -54,7 +54,7 @@ impl LocalAllTalkHandle {
     }
     
     /// Send a TTS request to the local AllTalk instance
-    pub async fn submit_tts_request(&self, request: TtsRequest) -> eyre::Result<TtsResponse> {
+    pub async fn submit_tts_request(&self, request: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
         let (send, recv) = tokio::sync::oneshot::channel();
         self.send.send(AllTalkMessage::TtsRequest(request, send)).await?;
 
@@ -62,15 +62,14 @@ impl LocalAllTalkHandle {
     }
 }
 
-pub struct LocalAllTalk {
-    instance_path: PathBuf,
+struct LocalAllTalk {
     config: LocalAllTalkConfig,
     state: Option<TemporaryState>,
     recv: sync::mpsc::Receiver<AllTalkMessage>,
 }
 
 struct TemporaryState {
-    api: AllTalkApi,
+    tts: AllTalkTTS,
     process: Box<dyn TokioChildWrapper>,
     last_access: std::time::Instant,
 }
@@ -156,7 +155,7 @@ impl LocalAllTalk {
                 };
                 
                 let now = std::time::Instant::now();
-                let tts_response = state.api.tts_request(alltalk_req).await?;
+                let tts_response = state.tts.api.tts_request(alltalk_req).await?;
                 let took = now.elapsed();
                 let gen_path = PathBuf::from(tts_response.output_file_path);
                 
@@ -166,7 +165,7 @@ impl LocalAllTalk {
                     tokio::fs::remove_file(text).await?;
                 }
                 
-                let _ = response.send(TtsResponse {
+                let _ = response.send(BackendTtsResponse {
                     gen_time: took,
                     result: TtsResult::File(gen_path),
                 });
@@ -178,7 +177,7 @@ impl LocalAllTalk {
     }
     
     fn voices_path(&self) -> PathBuf {
-        self.instance_path.join("voices")
+        self.config.instance_path.join("voices")
     }
 
     /// Ensure a running AllTalk instance exists.
@@ -204,10 +203,11 @@ impl LocalAllTalk {
     /// Force create and replace the current state by creating a new AllTalk instance.
     #[tracing::instrument(skip(self))]
     async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
-        let child = Self::start_alltalk(&self.instance_path).await?;
-
+        let child = Self::start_alltalk(&self.config.instance_path).await?;
+        let api = AllTalkTTS::new(self.config.api.clone()).await?;
+        
         Ok(self.state.insert(TemporaryState {
-            api: AllTalkApi::new(self.config.api.clone())?,
+            tts: api,
             process: child,
             last_access: std::time::Instant::now(),
         }))
@@ -256,10 +256,11 @@ mod tests {
     #[tokio::test]
     pub async fn basic_test() {
         let cfg = LocalAllTalkConfig {
+            instance_path: r"G:\TTS\alltalk_tts\".into(),
             timeout: Duration::from_secs(2),
             api: AllTalkConfig::new("localhost:7581".try_into().unwrap()),
         };
-        let handle = LocalAllTalkHandle::new(r"G:\TTS\alltalk_tts\", cfg).unwrap();
+        let handle = LocalAllTalkHandle::new(cfg).unwrap();
         
         handle.send.send(AllTalkMessage::StartInstance).await.unwrap();
         
