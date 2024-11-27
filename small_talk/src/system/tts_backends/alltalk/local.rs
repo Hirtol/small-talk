@@ -102,7 +102,7 @@ impl LocalAllTalk {
                 }
             } else {
                 let Some(msg) = self.recv.recv().await else {
-                    tracing::trace!("Stopping local actor as channel was closed");
+                    tracing::trace!("Stopping LocalAllTalk actor as channel was closed");
                     break;
                 };
                 self.handle_message(msg).await?;

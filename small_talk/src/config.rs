@@ -3,6 +3,7 @@ use std::io::Write;
 use tokio::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
 use crate::system::tts_backends::alltalk::AllTalkConfig;
@@ -60,6 +61,8 @@ pub struct Config {
 pub struct TtsConfig {
     /// Directory containing an AllTalk instance.
     pub local_all_talk: PathBuf,
+    /// How long until the resources allocated to the local ML should be freed after not being used.
+    pub timeout: Duration,
     pub alltalk_cfg: AllTalkConfig,
 }
 
@@ -115,6 +118,7 @@ impl Default for TtsConfig {
         let app_dir = crate::get_app_dirs().config_dir;
         Self {
             local_all_talk: app_dir.join("alltalk"),
+            timeout: Duration::from_secs(30 * 60),
             alltalk_cfg: AllTalkConfig::new(url::Url::parse("http://localhost:7851/").unwrap()),
         }
     }

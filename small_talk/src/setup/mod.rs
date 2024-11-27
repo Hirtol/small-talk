@@ -38,7 +38,7 @@ impl Application {
 
         let all_talk_cfg = LocalAllTalkConfig {
             instance_path: config.tts.local_all_talk.clone(),
-            timeout: Duration::from_secs(60),
+            timeout: config.tts.timeout,
             api: config.tts.alltalk_cfg.clone(),
         };
         let xtts = LocalAllTalkHandle::new(all_talk_cfg)?;
@@ -85,8 +85,7 @@ impl Application {
             res = server => res.map_err(|e| eyre::eyre!(e))
         };
         
-        let tts = Arc::into_inner(self.voice).unwrap();
-        tts.shutdown().await?;
+        self.voice.shutdown().await?;
 
         result
     }

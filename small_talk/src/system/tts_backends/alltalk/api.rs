@@ -53,7 +53,6 @@ impl AllTalkApi {
     /// Returns the output path.
     #[tracing::instrument(skip(self))]
     pub async fn tts_request(&self, request: TtsRequest) -> eyre::Result<TtsResponse> {
-        tracing::debug!("Following Request: {request:#?}");
         let response = self.client
             .post(self.url("/api/tts-generate")?)
             .form(&request)

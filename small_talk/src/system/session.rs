@@ -10,7 +10,7 @@ use eyre::ContextCompat;
 use itertools::Itertools;
 use path_abs::PathOps;
 use rand::{prelude::IteratorRandom, thread_rng};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
@@ -35,15 +35,17 @@ pub struct GameSessionHandle {
 }
 
 impl GameSessionHandle {
+    #[tracing::instrument(skip(config, tts, voice_man))]
     pub async fn new(
         game_name: &str,
         voice_man: Arc<VoiceManager>,
         tts: TtsBackend,
         config: SharedConfig,
     ) -> eyre::Result<Self> {
+        tracing::info!("Starting: {}", game_name);
         // Small amount before we exert back-pressure
         let (send, recv) = tokio::sync::mpsc::channel(10);
-        let (send_b, recv_b) = tokio::sync::broadcast::channel(100);
+        let (send_b, recv_b) = broadcast::channel(100);
         let (notify_send, notify_recv) = tokio::sync::mpsc::channel(1);
         let (game_data, line_cache) = GameSessionActor::create_or_load_from_file(game_name, &config).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
@@ -159,21 +161,17 @@ pub struct GameData {
     pub female_voices: Vec<VoiceReference>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct LineCache {
-    /// Voice -> Line voiced -> file name
-    pub voice_to_line: HashMap<VoiceReference, HashMap<String, String>>,
-}
-
 impl GameSessionActor {
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
             let Some(msg) = self.recv.recv().await else {
-                tracing::trace!("Stopping local actor as channel was closed");
+                tracing::trace!("Stopping GameSessionActor as channel was closed");
                 break;
             };
             self.handle_message(msg).await?;
         }
+        
+        self.data.save_cache().await?;
 
         Ok(())
     }
@@ -245,7 +243,7 @@ impl GameSessionActor {
             female_voices: vec![],
         };
         let out = serde_json::to_vec_pretty(&data)?;
-
+        
         tokio::fs::create_dir_all(dir).await?;
         tokio::fs::write(dir.join(CONFIG_NAME), &out).await?;
 
@@ -269,7 +267,7 @@ impl GameQueueActor {
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
             let Some(_) = self.notify.recv().await else {
-                tracing::trace!(?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
+                tracing::trace!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
                 break;
             };
 
@@ -496,5 +494,63 @@ impl GameSharedData {
 
     fn line_cache_path(&self) -> PathBuf {
         super::dirs::game_lines_cache(&self.config, &self.game_data.game_name)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LineCache {
+    /// Voice -> Line voiced -> file name
+    pub voice_to_line: HashMap<VoiceReference, HashMap<String, String>>,
+}
+
+// Needed in order to properly handle VoiceReference
+impl Serialize for LineCache {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Create a temporary HashMap<String, HashMap<String, String>>
+        let transformed: HashMap<String, HashMap<String, String>> = self
+            .voice_to_line
+            .iter()
+            .map(|(key, value)| {
+                let key_str = match &key.location {
+                    VoiceDestination::Global => format!("global_{}", key.name),
+                    VoiceDestination::Game(_) => format!("game_{}", key.name),
+                };
+                (key_str, value.clone())
+            })
+            .collect();
+
+        transformed.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for LineCache {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize into a temporary HashMap<String, HashMap<String, String>>
+        let raw_map: HashMap<String, HashMap<String, String>> =
+            HashMap::deserialize(deserializer)?;
+
+        // Convert back to HashMap<VoiceReference, HashMap<String, String>>
+        let voice_to_line = raw_map
+            .into_iter()
+            .map(|(key, value)| {
+                let (location, name) = if let Some(rest) = key.strip_prefix("global_") {
+                    (VoiceDestination::Global, rest.to_string())
+                } else if let Some(rest) = key.strip_prefix("game_") {
+                    (VoiceDestination::Game(String::new()), rest.to_string())
+                } else {
+                    return Err(serde::de::Error::custom(format!("Invalid key format: {}", key)));
+                };
+
+                Ok((VoiceReference { name, location }, value))
+            })
+            .collect::<Result<HashMap<_, _>, D::Error>>()?;
+
+        Ok(LineCache { voice_to_line })
     }
 }

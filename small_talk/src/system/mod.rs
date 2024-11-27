@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 pub use data::*;
 use std::sync::Arc;
+use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -69,14 +70,11 @@ impl TtsSystem {
         Ok(())
     }
     
-    /// Send a TTS request to the given model.
-    pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
-        todo!()
-    }
-    
     /// Shut the entire TTS backend down.
-    pub async fn shutdown(self) -> eyre::Result<()> {
-        drop(self);
+    pub async fn shutdown(&self) -> eyre::Result<()> {
+        self.sessions.lock().await.clear();
+        // TODO: Add a 'shutdown' message to the actors for proper shutdown and remove the below
+        tokio::time::sleep(Duration::from_secs(1)).await;
         Ok(())
     }
 }

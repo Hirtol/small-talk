@@ -34,8 +34,6 @@ impl<T: Serialize> IntoResponse for ApiResponseError<T> {
     }
 }
 
-// impl OperationOutput for ApiError { type Inner = (); }
-
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let response = ApiResponseError {
@@ -46,6 +44,7 @@ impl IntoResponse for ApiError {
         
         let status_error = match self {
             ApiError::Other(e) => {
+                tracing::error!("Internal error occurred: {e:#?}");
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             ApiError::Json { source } => {
