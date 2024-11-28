@@ -101,6 +101,18 @@ impl GameSessionHandle {
 
         Ok(recv.await?)
     }
+    
+    /// Force the character mapping to use the given voice.
+    pub async fn force_character_voice(&self, character: CharacterName, voice: VoiceReference) -> eyre::Result<()> {
+        tracing::debug!(?character, ?voice, "Forced voice mapping");
+        self.data.game_data.character_map.pin().insert(character, voice);
+        Ok(())
+    }
+    
+    /// Return all current character voice mappings
+    pub async fn character_voices(&self) -> eyre::Result<HashMap<CharacterName, VoiceReference>> {
+        Ok(self.data.game_data.character_map.pin().iter().map(|(c, v)| (c.clone(), v.clone())).collect())
+    }
 
     /// Return all available voices for this particular game, including global voices.
     pub async fn available_voices(&self) -> eyre::Result<Vec<FsVoiceData>> {
@@ -128,7 +140,6 @@ impl GameSessionHandle {
 pub enum GameSessionMessage {
     /// Add all given lines, in order, to the existing queue (first item in Vec will be front of the queue)
     AddToQueue(Vec<VoiceLine>),
-    /// Retrieve
     Single(VoiceLine, tokio::sync::oneshot::Sender<Arc<TtsResponse>>),
     /// Request a direct handle to the TtsResponse stream
     BroadcastHandle(tokio::sync::oneshot::Sender<broadcast::Receiver<Arc<TtsResponse>>>)

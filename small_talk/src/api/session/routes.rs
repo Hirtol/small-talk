@@ -1,23 +1,23 @@
-use std::path::PathBuf;
-use aide::axum::IntoApiResponse;
-use aide::axum::routing::{get_with, post, post_with};
+use std::collections::HashMap;
+use aide::axum::routing::{get_with, post, post_with, put_with};
 use aide::transform::TransformOperation;
 use axum::extract::{Path, State};
-use axum::handler::Handler;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::api::{ApiResult, ApiRouter, AppState};
 use crate::api::extractor::Json;
 use crate::api::session::Session;
-use crate::system::{TtsResponse, Voice};
+use crate::system::{CharacterName, Voice};
 use crate::system::voice_manager::VoiceReference;
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest("/session/:game_name",
                           ApiRouter::new()
                               .api_route("/start", post_with(session_start, session_start_docs))
-                              .api_route("/voices", get_with(get_session_voices, get_session_voices_docs))
                               .api_route("/stop", post_with(session_stop, session_stop_docs))
+                              .api_route("/voices", get_with(get_session_voices, get_session_voices_docs))
+                              .api_route("/characters", get_with(get_session_characters, get_session_characters_docs))
+                              .api_route("/characters", put_with(put_session_character, put_session_characters_docs))
                               .merge(super::tts::config()),
     )
 }
@@ -43,6 +43,20 @@ fn session_start_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
+pub async fn session_stop(state: State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Session>> {
+    state.system.stop_session(&id).await?;
+
+    Ok(Json(Session {
+        id,
+    }))
+}
+
+fn session_stop_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Stop a session, dropping any TTS requests still in the queue")
+        .response::<200, Json<Session>>()
+}
+
+#[tracing::instrument(skip(state))]
 pub async fn get_session_voices(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<Vec<VoiceReference>>> {
     let sess = state.system.get_or_start_session(&game_name).await?;
     
@@ -57,15 +71,35 @@ fn get_session_voices_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn session_stop(state: State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Session>> {
-    state.system.stop_session(&id).await?;
+pub async fn get_session_characters(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<HashMap<CharacterName, VoiceReference>>> {
+    let sess = state.system.get_or_start_session(&game_name).await?;
 
-    Ok(Json(Session {
-        id,
-    }))
+    let output = sess.character_voices().await?;
+
+    Ok(Json(output))
 }
 
-fn session_stop_docs(op: TransformOperation) -> TransformOperation {
-    op.description("Stop a session, dropping any TTS requests still in the queue")
-        .response::<200, Json<Session>>()
+fn get_session_characters_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Retrieve the assigned voices for each character in this game session.\nThis does not include characters which have not yet been seen.")
+        .response::<200, Json<HashMap<CharacterName, VoiceReference>>>()
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct PutSessionCharacter {
+    name: CharacterName,
+    voice: VoiceReference,
+}
+
+#[tracing::instrument(skip(state))]
+pub async fn put_session_character(state: State<AppState>, Path(game_name): Path<String>, Json(put): Json<PutSessionCharacter>) -> ApiResult<()> {
+    let sess = state.system.get_or_start_session(&game_name).await?;
+
+    sess.force_character_voice(put.name, put.voice).await?;
+
+    Ok(())
+}
+
+fn put_session_characters_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Force the given character to always use the given voice, potentially overriding any existing voice used.")
+        .response::<200, ()>()
 }
