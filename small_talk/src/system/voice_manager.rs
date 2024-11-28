@@ -22,12 +22,12 @@ impl VoiceManager {
         Self { conf }
     }
 
-    pub fn get_voice(&self, voice: &VoiceReference) -> eyre::Result<FsVoiceData> {
+    pub fn get_voice(&self, voice: VoiceReference) -> eyre::Result<FsVoiceData> {
         let path = voice.location.to_path(&self.conf).join(&voice.name);
         if path.exists() {
             Ok(FsVoiceData {
                 dir: path,
-                name: voice.name.clone(),
+                reference: voice,
             })    
         } else {
             Err(eyre::eyre!("Voice does not exist"))
@@ -49,7 +49,10 @@ impl VoiceManager {
             .filter_entry(|d| d.file_type().is_dir())
             .flatten()
             .map(|d| FsVoiceData {
-                name: d.file_name().to_string_lossy().into_owned(),
+                reference: VoiceReference {
+                    name: d.file_name().to_string_lossy().into_owned(),
+                    location: VoiceDestination::Game(game_name.into()),
+                },
                 dir: d.into_path(),
             })
             .collect_vec()
@@ -63,7 +66,10 @@ impl VoiceManager {
             .filter_entry(|d| d.file_type().is_dir())
             .flatten()
             .map(|d| FsVoiceData {
-                name: d.file_name().to_string_lossy().into_owned(),
+                reference: VoiceReference {
+                    name: d.file_name().to_string_lossy().into_owned(),
+                    location: VoiceDestination::Global,
+                },
                 dir: d.into_path(),
             })
             .collect_vec()
@@ -82,7 +88,7 @@ impl VoiceManager {
                 name: voice_name.into(),
                 location: dest,
             };
-            if let Ok(voice_data) = self.get_voice(&refs) {
+            if let Ok(voice_data) = self.get_voice(refs) {
                 voice_data.get_samples()?
             } else {
                 HashMap::default()
@@ -153,7 +159,7 @@ pub struct FsVoice {
 
 #[derive(Debug, Clone)]
 pub struct FsVoiceData {
-    pub name: String,
+    pub reference: VoiceReference,
     pub dir: PathBuf,
 }
 
@@ -314,7 +320,7 @@ mod tests {
         let mut man = VoiceManager::new(conf);
         let refs = VoiceReference::global("BG3Narrator");
         
-        let t = man.get_voice(&refs).unwrap();
+        let t = man.get_voice(refs).unwrap();
         println!("{:#?}", t.get_samples().unwrap());
         println!("T: {:#?}", man.get_global_voices())
     }

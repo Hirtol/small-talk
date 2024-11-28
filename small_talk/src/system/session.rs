@@ -23,15 +23,18 @@ use tokio::{
 };
 use tokio::sync::broadcast;
 use crate::system::TtsVoice;
+use crate::system::voice_manager::FsVoiceData;
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
 
 pub type GameSessionActorHandle = tokio::sync::mpsc::UnboundedSender<GameSessionMessage>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GameSessionHandle {
     send: tokio::sync::mpsc::Sender<GameSessionMessage>,
+    data: Arc<GameSharedData>,
+    voice_man: Arc<VoiceManager>,
 }
 
 impl GameSessionHandle {
@@ -53,7 +56,7 @@ impl GameSessionHandle {
 
         let shared_data = Arc::new(GameSharedData {
             config,
-            voice_manager: voice_man,
+            voice_manager: voice_man.clone(),
             game_data,
             queue: shared_queue,
             line_cache,
@@ -68,7 +71,7 @@ impl GameSessionHandle {
         let queue_actor = GameQueueActor {
             broadcast: send_b,
             tts,
-            data: shared_data,
+            data: shared_data.clone(),
             notify: notify_recv,
             generations_count: 0,
         };
@@ -86,6 +89,8 @@ impl GameSessionHandle {
 
         Ok(Self {
             send,
+            data: shared_data,
+            voice_man,
         })
     }
     
@@ -95,6 +100,11 @@ impl GameSessionHandle {
         self.send.send(GameSessionMessage::BroadcastHandle(send)).await?;
 
         Ok(recv.await?)
+    }
+
+    /// Return all available voices for this particular game, including global voices.
+    pub async fn available_voices(&self) -> eyre::Result<Vec<FsVoiceData>> {
+        Ok(self.voice_man.get_voices(&self.data.game_data.game_name))
     }
     
     /// Will add the given items onto the queue for TTS generation.
@@ -153,12 +163,12 @@ struct GameSharedData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GameData {
-    pub game_name: String,
-    pub character_map: papaya::HashMap<CharacterName, VoiceReference>,
+struct GameData {
+    game_name: String,
+    character_map: papaya::HashMap<CharacterName, VoiceReference>,
     /// The voices which should be in the random pool of assignment
-    pub male_voices: Vec<VoiceReference>,
-    pub female_voices: Vec<VoiceReference>,
+    male_voices: Vec<VoiceReference>,
+    female_voices: Vec<VoiceReference>,
 }
 
 impl GameSessionActor {
@@ -170,8 +180,9 @@ impl GameSessionActor {
             };
             self.handle_message(msg).await?;
         }
-        
+
         self.data.save_cache().await?;
+        self.data.save_state().await?;
 
         Ok(())
     }
@@ -222,7 +233,7 @@ impl GameSessionActor {
         Ok(())
     }
 
-    pub async fn create_or_load_from_file(
+    async fn create_or_load_from_file(
         game_name: &str,
         config: &SharedConfig,
     ) -> eyre::Result<(GameData, LineCache)> {
@@ -243,7 +254,7 @@ impl GameSessionActor {
             female_voices: vec![],
         };
         let out = serde_json::to_vec_pretty(&data)?;
-        
+
         tokio::fs::create_dir_all(dir).await?;
         tokio::fs::write(dir.join(CONFIG_NAME), &out).await?;
 
@@ -274,9 +285,6 @@ impl GameQueueActor {
             while self.pop_queue().await? {}
         }
 
-        // Save our line cache before dropping this session.
-        self.data.save_cache().await?;
-
         Ok(())
     }
 
@@ -306,12 +314,12 @@ impl GameQueueActor {
                 forced.clone()
             }
             TtsVoice::CharacterVoice(character) => {
-                self.data.map_character(character)?
+                self.data.map_character(character).await?
             }
         };
 
         // TODO: Line emotion detection
-        let voice = self.data.voice_manager.get_voice(&voice_to_use)?;
+        let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;
         let sample = voice.random_sample()?;
 
         // TODO: Configurable language
@@ -323,7 +331,7 @@ impl GameQueueActor {
         };
         let response = self.tts.tts_request(voice_line.model, request).await?;
         
-        let out = self.transform_response(&voice_to_use, voice_line, response).await?;
+        let out = self.transform_response(voice_to_use, voice_line, response).await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
         if self.generations_count > 20 {
@@ -336,7 +344,7 @@ impl GameQueueActor {
     /// Transfer a TTS file from its temporary directory to a permanent one and track its contents
     async fn transform_response(
         &mut self,
-        voice: &VoiceReference,
+        voice: VoiceReference,
         line: VoiceLine,
         response: BackendTtsResponse,
     ) -> eyre::Result<TtsResponse> {
@@ -352,19 +360,30 @@ impl GameQueueActor {
 
                 // Move the file to its permanent spot, and add it to the tracking
                 tokio::fs::rename(&temp_path, &target_voice_file).await?;
-                self.data
+
+                let voice_used = voice.name.clone();
+
+                let old_value = self.data
                     .line_cache
                     .lock()
                     .await
                     .voice_to_line
-                    .entry(voice.clone())
+                    .entry(voice)
                     .or_default()
                     .insert(line.line.clone(), file_name);
+
+                // Delete old lines if they existed (e.g., this was forcefully regenerated)
+                if let Some(old_line) = old_value {
+                    tracing::debug!(?old_line, "Deleting old line for new generation");
+                    let target_voice_file = target_dir.join(&old_line);
+                    // If it fails we don't care.
+                    let _ = tokio::fs::remove_file(target_voice_file).await;
+                }
 
                 Ok(TtsResponse {
                     file_path: target_voice_file,
                     line,
-                    voice_used: voice.name.clone(),
+                    voice_used,
                 })
             }
             TtsResult::Stream => unimplemented!("Implement stream handling (still want to cache the output as well!)"),
@@ -380,7 +399,7 @@ impl GameSharedData {
                 forced.clone()
             }
             TtsVoice::CharacterVoice(character) => {
-                self.map_character(character)?
+                self.map_character(character).await?
             }
         };;
 
@@ -395,7 +414,7 @@ impl GameSharedData {
                 .or_default()
                 .get(&voice_line.line)
             {
-                let target_voice_file = self.line_cache_path().join(&voice_to_use.name).join(&file_name);
+                let target_voice_file = self.line_cache_path().join(&voice_to_use.name).join(file_name);
 
                 return Ok(Some(TtsResponse {
                     file_path: target_voice_file,
@@ -403,24 +422,23 @@ impl GameSharedData {
                     voice_used: voice_to_use.name.clone(),
                 }));
             }
-        } else {
-            tracing::debug!("Forcefully regenerating line")
         }
 
         Ok(None)
     }
 
     /// Try map the given character to a voice in our backend.
-    fn map_character(&self, character: &CharacterVoice) -> eyre::Result<VoiceReference> {
-        let pin = self.game_data.character_map.pin();
+    async fn map_character(&self, character: &CharacterVoice) -> eyre::Result<VoiceReference> {
+        let pin = self.game_data.character_map.pin_owned();
 
         if let Some(voice) = pin.get(&character.name) {
             Ok(voice.clone())
         } else {
             // First check if a game specific voice exists with the same name as the given character
-            let voices = self.voice_manager.get_game_voices(&self.game_data.game_name);
-            let voice_to_use = if let Some(matched) = voices.iter().find(|v| v.name == character.name) {
-                VoiceReference::game(matched.name.clone(), self.game_data.game_name.clone())
+            let voice_ref = VoiceReference::game(&character.name, self.game_data.game_name.clone());
+
+            let voice_to_use = if let Some(matched) = self.voice_manager.get_voice(voice_ref).ok() {
+                matched.reference
             } else {
                 let voice_counts = pin.values().fold(HashMap::new(), |mut map, v| {
                     *map.entry(v).or_insert(0usize) += 1;
@@ -478,7 +496,13 @@ impl GameSharedData {
                 }
             };
 
-            Ok(pin.get_or_insert(character.name.clone(), voice_to_use).clone())
+            let out = pin.get_or_insert(character.name.clone(), voice_to_use).clone();
+            drop(pin);
+
+            // Save the character mapping as we _really_ don't want to lose that.
+            self.save_state().await?;
+
+            Ok(out)
         }
     }
 
@@ -490,6 +514,15 @@ impl GameSharedData {
 
         let writer = std::io::BufWriter::new(std::fs::File::create(json_file)?);
         Ok(serde_json::to_writer_pretty(writer, &*self.line_cache.lock().await)?)
+    }
+
+    /// Serialize all variable state (such as character assignments) to disk.
+    async fn save_state(&self) -> eyre::Result<()> {
+        let config_save = super::dirs::game_dir(&self.config, &self.game_data.game_name)
+            .join(CONFIG_NAME);
+        let writer = std::io::BufWriter::new(std::fs::File::create(config_save)?);
+
+        Ok(serde_json::to_writer_pretty(writer, &self.game_data)?)
     }
 
     fn line_cache_path(&self) -> PathBuf {
