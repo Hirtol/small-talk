@@ -353,7 +353,7 @@ impl GameQueueActor {
                 let spec = reader.spec();
                 let duration = reader.duration() / spec.sample_rate;
                 duration < 15
-            }).or_else(|e| {
+            }).or_else(|_| {
                 tracing::debug!("Failed to find a sample which matches with < 15 seconds duration, falling back to normal samples");
                 voice.random_sample()
             })?,

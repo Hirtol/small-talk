@@ -7,7 +7,7 @@ use error_set::error_set;
 use schemars::JsonSchema;
 use serde::{Serialize};
 use crate::api::extractor::Json;
-
+use axum::extract::rejection::*;
 error_set! {
     #[derive(OperationIo)]
     ApiError = {
@@ -16,7 +16,15 @@ error_set! {
         #[display("JSON validation error {source:?}")]
         Json {
             source: JsonSchemaRejection
-        }
+        },
+        #[display("Path validation error {source:?}")]
+        Path {
+            source: PathRejection
+        },
+        #[display("Path validation error {source:?}")]
+        Query {
+            source: QueryRejection
+        },
     };
 }
 
@@ -50,6 +58,12 @@ impl IntoResponse for ApiError {
             ApiError::Json { source } => {
                 return source.into_response()
             }
+            ApiError::Path { source } => {
+                return source.into_response()
+            }
+            ApiError::Query { source } => {
+                return source.into_response()
+            }
         };
 
         (status_error, Json(response)).into_response()
@@ -59,6 +73,22 @@ impl IntoResponse for ApiError {
 impl From<JsonSchemaRejection> for ApiError {
     fn from(value: JsonSchemaRejection) -> Self {
         ApiError::Json {
+            source: value,
+        }
+    }
+}
+
+impl From<PathRejection> for ApiError {
+    fn from(value: PathRejection) -> Self {
+        ApiError::Path {
+            source: value,
+        }
+    }
+}
+
+impl From<QueryRejection> for ApiError {
+    fn from(value: QueryRejection) -> Self {
+        ApiError::Query {
             source: value,
         }
     }

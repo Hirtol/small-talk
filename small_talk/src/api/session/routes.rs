@@ -5,13 +5,13 @@ use axum::extract::{Path, State};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use crate::api::{ApiResult, ApiRouter, AppState};
-use crate::api::extractor::Json;
+use crate::api::extractor::{Json};
 use crate::api::session::Session;
 use crate::system::{CharacterName, Voice};
 use crate::system::voice_manager::VoiceReference;
 
 pub fn config() -> ApiRouter<AppState> {
-    ApiRouter::new().nest("/session/:game_name",
+    ApiRouter::new().nest("/session/:id",
                           ApiRouter::new()
                               .api_route("/start", post_with(session_start, session_start_docs))
                               .api_route("/stop", post_with(session_stop, session_stop_docs))
@@ -19,7 +19,7 @@ pub fn config() -> ApiRouter<AppState> {
                               .api_route("/characters", get_with(get_session_characters, get_session_characters_docs))
                               .api_route("/characters", put_with(put_session_character, put_session_characters_docs))
                               .merge(super::tts::config()),
-    )
+    ).with_path_items(|t| t.tag("Game Session TTS").description("All routes related to TTS requests for a particular game"))
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
@@ -29,12 +29,11 @@ pub struct ApiSessionStart {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn session_start(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<Session>> {
-    let _ = state.system.get_or_start_session(&game_name).await?;
+#[axum::debug_handler]
+pub async fn session_start(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<Session>> {
+    let _ = state.system.get_or_start_session(&game_name.id).await?;
     
-    Ok(Session {
-        id: game_name,
-    }.into())
+    Ok(game_name.into())
 }
 
 fn session_start_docs(op: TransformOperation) -> TransformOperation {
@@ -43,12 +42,10 @@ fn session_start_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn session_stop(state: State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Session>> {
-    state.system.stop_session(&id).await?;
+pub async fn session_stop(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<Session>> {
+    state.system.stop_session(&game_name.id).await?;
 
-    Ok(Json(Session {
-        id,
-    }))
+    Ok(game_name.into())
 }
 
 fn session_stop_docs(op: TransformOperation) -> TransformOperation {
@@ -57,8 +54,8 @@ fn session_stop_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn get_session_voices(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<Vec<VoiceReference>>> {
-    let sess = state.system.get_or_start_session(&game_name).await?;
+pub async fn get_session_voices(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<Vec<VoiceReference>>> {
+    let sess = state.system.get_or_start_session(&game_name.id).await?;
     
     let output = sess.available_voices().await?.into_iter().map(|v| v.reference).collect();
     
@@ -71,8 +68,8 @@ fn get_session_voices_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn get_session_characters(state: State<AppState>, Path(game_name): Path<String>) -> ApiResult<Json<HashMap<CharacterName, VoiceReference>>> {
-    let sess = state.system.get_or_start_session(&game_name).await?;
+pub async fn get_session_characters(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<HashMap<CharacterName, VoiceReference>>> {
+    let sess = state.system.get_or_start_session(&game_name.id).await?;
 
     let output = sess.character_voices().await?;
 
@@ -91,8 +88,8 @@ struct PutSessionCharacter {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn put_session_character(state: State<AppState>, Path(game_name): Path<String>, Json(put): Json<PutSessionCharacter>) -> ApiResult<()> {
-    let sess = state.system.get_or_start_session(&game_name).await?;
+pub async fn put_session_character(state: State<AppState>, Path(game_name): Path<Session>, Json(put): Json<PutSessionCharacter>) -> ApiResult<()> {
+    let sess = state.system.get_or_start_session(&game_name.id).await?;
 
     sess.force_character_voice(put.name, put.voice).await?;
 
