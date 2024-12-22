@@ -255,8 +255,7 @@ impl FsVoiceData {
             .collect())
     }
     
-    /// Select any random sample in the dataset.
-    pub fn random_sample(&self) -> eyre::Result<FsVoiceSample> {
+    fn all_samples(&self) -> impl Iterator<Item=FsVoiceSample> {
         walkdir::WalkDir::new(&self.dir)
             .min_depth(1)
             .max_depth(2)
@@ -272,30 +271,28 @@ impl FsVoiceData {
                     sample: d.into_path(),
                 })
             })
+    }
+    
+    /// Select any random sample in the dataset.
+    pub fn random_sample(&self) -> eyre::Result<FsVoiceSample> {
+        self.all_samples()
             .choose(&mut thread_rng())
             .context("No sample available")
     }
     
+    /// Try to find a random voice sample which adheres to the given predicate
+    pub fn try_random_sample(&self, predicate: impl FnMut(&FsVoiceSample) -> bool) -> eyre::Result<FsVoiceSample> {
+        self.all_samples()
+            .filter(predicate)
+            .choose(&mut thread_rng())
+            .context("No sample available matching the predicate")
+    }
+    
     pub fn get_samples(&self) -> eyre::Result<HashMap<BasicEmotion, Vec<FsVoiceSample>>> {
         let mut output = HashMap::new();
-        let itr = walkdir::WalkDir::new(&self.dir)
-            .min_depth(1)
-            .max_depth(2)
-            .into_iter()
-            .filter_entry(is_wav)
-            .flatten()
-            .flat_map(|d| {
-                let text = d.path().with_extension("txt");
-                let emotion = BasicEmotion::from_file_name(&d.file_name().to_string_lossy())?;
-                Some((emotion, FsVoiceSample {
-                    emotion,
-                    spoken_text: text.exists().then_some(text),
-                    sample: d.into_path(),
-                }))
-            });
-        
-        for (emotion, out) in itr {
-            let coll: &mut Vec<_> = output.entry(emotion).or_default();
+
+        for out in self.all_samples() {
+            let coll: &mut Vec<_> = output.entry(out.emotion).or_default();
             coll.push(out)
         }
         

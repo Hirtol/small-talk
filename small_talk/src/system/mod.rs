@@ -17,6 +17,7 @@ pub mod data;
 pub mod session;
 pub mod voice_manager;
 pub mod utils;
+pub mod playback;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 

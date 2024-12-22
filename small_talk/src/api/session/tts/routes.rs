@@ -12,7 +12,10 @@ pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest("/tts",
                           ApiRouter::new()
                               .api_route("/request", post_with(tts_request, tts_request_docs))
-                              .api_route("/queue", post_with(tts_queue, tts_queue_docs)),
+                              .api_route("/queue", post_with(tts_queue, tts_queue_docs))
+                              .nest("/playback", ApiRouter::new()
+                                  .api_route("/start", post_with(tts_playback_start, tts_playback_start_request_docs))
+                                  .api_route("/stop", post_with(tts_playback_stop, tts_playback_stop_request_docs))),
     )
 }
 
@@ -54,4 +57,30 @@ pub async fn tts_queue(state: State<AppState>, Path(game_name): Path<String>, Js
 fn tts_queue_docs(op: TransformOperation) -> TransformOperation {
     op.description("Add all lines to the async TTS queue. This request will not block and instead immediately return.")
         .response::<200, Json<TtsQueueResponse>>()
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn tts_playback_start(state: State<AppState>, Path(game_name): Path<String>, Json(request): Json<ApiTtsRequest>) -> ApiResult<()> {
+    let session_handle = state.system.get_or_start_session(&game_name).await?;
+    session_handle.playback.start(request.into()).await?;
+    
+    Ok(())
+}
+
+fn tts_playback_start_request_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Start a local playback of the given voice-line. This will return immediately, even if the voiceline hasn't finished playing yet.")
+        .response::<200, ()>()
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn tts_playback_stop(state: State<AppState>, Path(game_name): Path<String>, Json(request): Json<ApiTtsRequest>) -> ApiResult<()> {
+    let session_handle = state.system.get_or_start_session(&game_name).await?;
+    session_handle.playback.stop().await?;
+
+    Ok(())
+}
+
+fn tts_playback_stop_request_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Stop a playback if one is currently ongoing")
+        .response::<200, ()>()
 }

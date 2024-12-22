@@ -44,7 +44,7 @@ impl IntoResponse for ApiError {
         
         let status_error = match self {
             ApiError::Other(e) => {
-                tracing::error!("Internal error occurred: {e:#?}");
+                tracing::error!("Internal error occurred: {e:?}");
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             ApiError::Json { source } => {

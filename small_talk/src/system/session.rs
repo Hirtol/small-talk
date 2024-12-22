@@ -17,12 +17,13 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
+use serde::de::Error;
 use tokio::{
-    io::BufWriter,
     sync::{broadcast::error::RecvError, Mutex},
 };
 use tokio::sync::broadcast;
-use crate::system::TtsVoice;
+use crate::system::{TtsModel, TtsVoice};
+use crate::system::playback::PlaybackEngineHandle;
 use crate::system::voice_manager::FsVoiceData;
 
 const CONFIG_NAME: &str = "config.json";
@@ -33,6 +34,7 @@ pub type GameSessionActorHandle = tokio::sync::mpsc::UnboundedSender<GameSession
 #[derive(Clone)]
 pub struct GameSessionHandle {
     send: tokio::sync::mpsc::Sender<GameSessionMessage>,
+    pub playback: PlaybackEngineHandle,
     data: Arc<GameSharedData>,
     voice_man: Arc<VoiceManager>,
 }
@@ -86,9 +88,12 @@ impl GameSessionHandle {
                 tracing::error!("GameSessionQueue stopped with error: {e}");
             }
         });
+        
+        let playback = PlaybackEngineHandle::new(send.clone()).await?;
 
         Ok(Self {
             send,
+            playback,
             data: shared_data,
             voice_man,
         })
@@ -127,6 +132,9 @@ impl GameSessionHandle {
     }
     
     /// Request a single voice line with the highest priority.
+    /// 
+    /// If this future is dropped prematurely the request will still be handled, and the response will be sent on
+    /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
         let (send, recv) = tokio::sync::oneshot::channel();
@@ -331,7 +339,26 @@ impl GameQueueActor {
 
         // TODO: Line emotion detection
         let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;
-        let sample = voice.random_sample()?;
+        let sample = match voice_line.model {
+            TtsModel::F5 => voice.try_random_sample(|fs| {
+                // The way alltalk/f5 cut off samples when > 15 seconds in length is, frankly, quite shit.
+                // So the best way of dealing with that is to just ensure we don't have any samples > 15 seconds
+                let Ok(file) = std::fs::File::open(&fs.sample) else {
+                    return false;
+                };
+                let Ok(reader) = hound::WavReader::new(std::io::BufReader::new(file)) else {
+                    return false;
+                };
+                
+                let spec = reader.spec();
+                let duration = reader.duration() / spec.sample_rate;
+                duration < 15
+            }).or_else(|e| {
+                tracing::debug!("Failed to find a sample which matches with < 15 seconds duration, falling back to normal samples");
+                voice.random_sample()
+            })?,
+            _ => voice.random_sample()?,
+        };
 
         // TODO: Configurable language
         let request = BackendTtsRequest {
@@ -412,8 +439,9 @@ impl GameSharedData {
             TtsVoice::CharacterVoice(character) => {
                 self.map_character(character).await?
             }
-        };;
-
+        };
+        tracing::trace!(?voice_to_use, "Will try to use voice for cache");
+        
         // First check if we have a cache reference
         if !voice_line.force_generate {
             if let Some(file_name) = self
@@ -560,7 +588,7 @@ impl Serialize for LineCache {
             .map(|(key, value)| {
                 let key_str = match &key.location {
                     VoiceDestination::Global => format!("global_{}", key.name),
-                    VoiceDestination::Game(_) => format!("game_{}", key.name),
+                    VoiceDestination::Game(game_name) => format!("game_{game_name}_{}", key.name),
                 };
                 (key_str, value.clone())
             })
@@ -586,7 +614,8 @@ impl<'de> Deserialize<'de> for LineCache {
                 let (location, name) = if let Some(rest) = key.strip_prefix("global_") {
                     (VoiceDestination::Global, rest.to_string())
                 } else if let Some(rest) = key.strip_prefix("game_") {
-                    (VoiceDestination::Game(String::new()), rest.to_string())
+                    let (game_name, character) = rest.split_once("_").ok_or_else(|| D::Error::custom("No game identifier found"))?;
+                    (VoiceDestination::Game(game_name.into()), character.to_string())
                 } else {
                     return Err(serde::de::Error::custom(format!("Invalid key format: {}", key)));
                 };
