@@ -10,12 +10,14 @@ pub mod alltalk;
 #[derive(Debug, Clone)]
 pub struct TtsBackend {
     pub xtts: LocalAllTalkHandle,
+    pub f5: LocalAllTalkHandle,
 }
 
 impl TtsBackend {
-    pub fn new(xtts_all_talk: LocalAllTalkHandle) -> Self {
+    pub fn new(xtts_all_talk: LocalAllTalkHandle, f5_all_talk: LocalAllTalkHandle) -> Self {
         Self {
             xtts: xtts_all_talk,
+            f5: f5_all_talk,
         }
     }
 
@@ -24,7 +26,7 @@ impl TtsBackend {
     pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
         match model {
             TtsModel::F5 => {
-                todo!()
+                self.f5.submit_tts_request(req).await
             }
             TtsModel::Xtts => {
                 self.xtts.submit_tts_request(req).await

@@ -37,12 +37,18 @@ impl Application {
 
 
         let all_talk_cfg = LocalAllTalkConfig {
-            instance_path: config.tts.local_all_talk.clone(),
-            timeout: config.tts.timeout,
-            api: config.tts.alltalk_cfg.clone(),
+            instance_path: config.xtts.local_all_talk.clone(),
+            timeout: config.xtts.timeout,
+            api: config.xtts.alltalk_cfg.clone(),
         };
         let xtts = LocalAllTalkHandle::new(all_talk_cfg)?;
-        let backends = TtsBackend::new(xtts);
+        let all_talk_cfg = LocalAllTalkConfig {
+            instance_path: config.f5_tts.local_all_talk.clone(),
+            timeout: config.f5_tts.timeout,
+            api: config.f5_tts.alltalk_cfg.clone(),
+        };
+        let f5 = LocalAllTalkHandle::new(all_talk_cfg)?;
+        let backends = TtsBackend::new(xtts, f5);
         let handle = Arc::new(TtsSystem::new(config.clone(), backends));
         
         let result = Application {

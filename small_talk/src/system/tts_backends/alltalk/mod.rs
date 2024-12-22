@@ -31,7 +31,7 @@ impl AllTalkTTS {
         let api_client = AllTalkApi::new(config)?;
         
         // Wait for it to be ready
-        tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::time::timeout(Duration::from_secs(120), async {
             while !api_client.ready().await? {
                 tracing::trace!("AllTalk not ready yet, waiting");
                 tokio::time::sleep(Duration::from_secs(1)).await

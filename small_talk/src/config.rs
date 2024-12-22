@@ -54,7 +54,9 @@ pub struct Config {
     /// All directory related configs
     pub dirs: DirectoryConfig,
     #[serde(default)]
-    pub tts: TtsConfig,
+    pub xtts: TtsConfig,
+    #[serde(default)]
+    pub f5_tts: TtsConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
