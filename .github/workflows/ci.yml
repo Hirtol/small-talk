@@ -1,5 +1,5 @@
 name: CI
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 env:
   CARGO_INCREMENTAL: 0
@@ -15,6 +15,10 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
+      - name: Install ALSA dev
+        run: |
+          sudo apt update
+          sudo apt-get install libasound2-dev
       - name: Checkout repository
         uses: actions/checkout@master
 
@@ -31,6 +35,6 @@ jobs:
 
       - name: Compile tests
         run: cargo nextest run --all-features --workspace --no-run
-      
+
       - name: Run tests
         run: cargo nextest run --all-features --workspace
