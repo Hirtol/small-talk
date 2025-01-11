@@ -73,11 +73,13 @@ pub enum PlaybackMessage {
 
 pub struct PlaybackEngine {
     _output_device: SendCpalStream,
-    audio_sink: Sink,
     session_handle: tokio::sync::mpsc::Sender<GameSessionMessage>,
+    
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
-    current_queue: VecDeque<PlaybackVoiceLine>,
+    
+    audio_sink: Sink,
     current_volume: f32,
+    current_queue: VecDeque<PlaybackVoiceLine>,
     current_request: Option<tokio::sync::oneshot::Receiver<Arc<TtsResponse>>>,
 }
 
@@ -152,7 +154,6 @@ impl PlaybackEngine {
     }
 
     #[tracing::instrument(skip(self))]
-
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
         if self.audio_sink.empty() && self.current_request.is_none() {
             if let Some(request) = self.current_queue.pop_front() {
@@ -163,15 +164,15 @@ impl PlaybackEngine {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn start_playback_request(&mut self, request: PlaybackVoiceLine) -> eyre::Result<()> {
         let (send, recv) = tokio::sync::oneshot::channel();
         self.current_request = Some(recv);
         self.current_volume = request.volume.unwrap_or(match request.line.model {
-            TtsModel::F5 => 0.4,
+            TtsModel::E2 => 0.4,
             TtsModel::Xtts => 1.0,
         });
-
+        
         self.session_handle
             .send(GameSessionMessage::Single(request.line, send))
             .await?;

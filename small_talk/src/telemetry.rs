@@ -1,6 +1,6 @@
 use tracing::Subscriber;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{EnvFilter, Layer};
+use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 /// Create the initial subscriber, alongside the custom formatting for standard i/o.
 pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + Sync {

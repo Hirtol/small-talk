@@ -1,10 +1,9 @@
 use std::path::PathBuf;
-use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use routes::config;
-use crate::system::{TtsModel, TtsVoice, VoiceLine};
+use crate::system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsVoice, VoiceLine};
 
 pub mod routes;
 
@@ -25,6 +24,15 @@ impl From<ApiTtsRequest> for VoiceLine {
             person: value.person,
             model: value.model,
             force_generate: value.force_generate,
+            // For now assume these defaults.
+            // TODO make these configurable.
+            post: Some(PostProcessing {
+                trim_silence: true,
+                rvc: Some(RvcOptions {
+                    model: RvcModel::SeedVc,
+                    high_quality: false,
+                }),
+            }),
         }
     }
 }

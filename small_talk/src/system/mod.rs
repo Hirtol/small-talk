@@ -18,12 +18,14 @@ pub mod session;
 pub mod voice_manager;
 pub mod utils;
 pub mod playback;
+mod postprocessing;
+mod error;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TtsModel {
-    F5,
+    E2,
     Xtts,
 }
 
@@ -51,13 +53,14 @@ impl TtsSystem {
         let mut pin = self.sessions.lock().await;
         
         if let Some(game_ses) = pin.get(game) {
-            Ok(game_ses.clone())
-        } else {
-            let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.config.clone()).await?;
-            pin.insert(game.into(), new_session.clone());
-            
-            Ok(new_session)
+            if game_ses.is_alive() {
+                return Ok(game_ses.clone())
+            }
         }
+        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.config.clone()).await?;
+        pin.insert(game.into(), new_session.clone());
+
+        Ok(new_session)
     }
     
     /// Stop the given session if it was started

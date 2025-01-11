@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
 use crate::system::{Gender, Voice};
+use crate::system::error::VoiceManagerError;
 
 #[derive(Debug, Clone)]
 pub struct VoiceManager {
@@ -22,7 +23,7 @@ impl VoiceManager {
         Self { conf }
     }
 
-    pub fn get_voice(&self, voice: VoiceReference) -> eyre::Result<FsVoiceData> {
+    pub fn get_voice(&self, voice: VoiceReference) -> Result<FsVoiceData, VoiceManagerError> {
         let path = voice.location.to_path(&self.conf).join(&voice.name);
         if path.exists() {
             Ok(FsVoiceData {
@@ -30,7 +31,9 @@ impl VoiceManager {
                 reference: voice,
             })    
         } else {
-            Err(eyre::eyre!("Voice does not exist"))
+            Err(VoiceManagerError::VoiceDoesNotExist {
+                voice: voice.name,
+            })
         }
     }
 

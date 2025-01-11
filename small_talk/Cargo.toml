@@ -60,7 +60,7 @@ toml = "0.8"
 
 # rodio for playback!
 rodio = "0.20.1"
-hound = "3.5.1"
+wavers.workspace = true
 # ML
 small_talk_ml = {path = "../small_talk_ml"}
 process-wrap = { version = "8.0.2", features = ["tokio1"] }
