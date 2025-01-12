@@ -45,12 +45,8 @@ platform-dirs = "0.3"
 toml = "0.8"
 
 # ML
-small_talk_ml = { path = "../small_talk_ml" }
+small_talk_ml = { path = "../small_talk_ml", features = ["cuda"] }
 small_talk = { path = "../small_talk" }
-#small_talk_whisper = { path = "../small_talk_whisper"}
 libloading = "0.8.5"
-#whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", features = []}
 faster-whisper-rs = "0.2.0"
 hound = { version = "3.5.1" }
-kalosm = { version = "0.3.2", features = ["sound"] }
-kalosm-common = "0.3.3"

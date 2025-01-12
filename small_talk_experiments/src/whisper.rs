@@ -11,7 +11,7 @@ pub fn main() -> eyre::Result<()> {
     let trimmed_samples = trim_silence(&samples, reader.n_channels() as usize, 0.01); // Adjust threshold as needed
     println!("Trimmed length: {}", trimmed_samples.len());
     
-    let mut whisper = WhisperTranscribe::new(r"G:\TTS\small-talk-data\models\whisper\ggml\ggml-large-v3-turbo-q5_0.bin", 8)?;
+    let mut whisper = WhisperTranscribe::new(r"G:\TTS\small-talk-data\models\whisper\ggml\ggml-base.en-q8_0.bin", 8)?;
     let prompt = "A skeleton is walking across the wastes. He moves with pep in his step, humming a tune. His skull bobs in chorus with the humming, making the coins inside his head clink rhythmically. Next to him, nightmarish horses of flame and shadow draw a cart loaded with valuable-looking items. Upon seeing you, the skeleton offers a dramatic and hearty wave.";
     let now = Instant::now();
     let data = whisper.infer(&trimmed_samples, reader.n_channels())?;

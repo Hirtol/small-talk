@@ -7,4 +7,5 @@ pub use burn;
 
 pub mod embeddings;
 pub mod emotion_classifier;
+pub mod stt;
 

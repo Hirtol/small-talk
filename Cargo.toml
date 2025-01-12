@@ -26,8 +26,4 @@ opt-level = 3
 incremental = true
 debug = 0
 
-# Fix compile error on windows where `esaxx` forces dynamic compilation (from tokenizer lib)
-[patch.crates-io]
-esaxx-rs = { git = "https://github.com/thewh1teagle/esaxx-rs", branch = "feat/dynamic-msvc-link"}
-
 

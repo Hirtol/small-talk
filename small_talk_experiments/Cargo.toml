@@ -21,7 +21,6 @@ ort = { version = "2.0.0-rc.9", features = ["copy-dylibs", "load-dynamic", "cuda
 small_talk_ml = {path = "../small_talk_ml"}
 # whisper-rs = {path = "../../whisper-rs", features = ["whisper-cpp-tracing"]}
 whisper-rs = { git = "https://github.com/Hirtol/whisper-rs", features = ["whisper-cpp-tracing"]}
-# whisper-rs = { git = "https://github.com/tazz4843/whisper-rs"}
 
 # Audio stuff
 mel_spec = "0.2.7"

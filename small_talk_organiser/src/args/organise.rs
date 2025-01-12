@@ -1,8 +1,6 @@
 use eyre::ContextCompat;
 use futures::StreamExt;
 use itertools::Itertools;
-use kalosm::sound::{rodio::Decoder, WhisperBuilder, WhisperSource};
-use kalosm_common::{Cache, ModelLoadingProgress};
 use path_abs::PathInfo;
 use small_talk::{
     config::{Config, SharedConfig},
