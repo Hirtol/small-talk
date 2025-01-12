@@ -34,6 +34,8 @@ pub struct VoiceLine {
 pub struct PostProcessing {
     /// Whether to remove leading and trailing silences from the generated file
     pub trim_silence: bool,
+    /// Whether to normalise the audio that was generated.
+    pub normalise: bool,
     /// Whether to use RVC (seed-vc)
     pub rvc: Option<RvcOptions>
 }

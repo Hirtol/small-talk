@@ -401,18 +401,28 @@ impl GameQueueActor {
     #[tracing::instrument(skip_all)]
     async fn postprocess(&mut self, voice_line: &VoiceLine, post_processing: &PostProcessing, response: BackendTtsResponse) -> eyre::Result<BackendTtsResponse> {
         let should_trim = post_processing.trim_silence;
+        let should_normalise = post_processing.normalise;
         
         let timer = std::time::Instant::now();
         let new_audio_path = match response.result.clone() {
             TtsResult::File(temp_path) => {
                 tokio::task::spawn_blocking(move || {
                     let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
-                    let mut sample_data: &[f32] = &raw_audio_data.read()?;
+                    let mut sample_data: &mut [f32] = &mut raw_audio_data.read()?;
+
+                    let mut made_change = false;
 
                     if should_trim {
                         // Basically any signal should count.
-                        sample_data = super::postprocessing::trim_lead(sample_data, raw_audio_data.n_channels() as usize, 0.001);
-                        // As this is the only post-processing for now just write it back to the path
+                        sample_data = super::postprocessing::trim_lead(sample_data, raw_audio_data.n_channels(), 0.01);
+                        made_change = true;
+                    }
+                    if should_normalise {
+                        super::postprocessing::loudness_normalise(sample_data, raw_audio_data.sample_rate(), raw_audio_data.n_channels());
+                        made_change = true;
+                    }
+
+                    if made_change {
                         wavers::write(&temp_path, sample_data, raw_audio_data.sample_rate(), raw_audio_data.n_channels())?;
                     }
                     
@@ -425,6 +435,8 @@ impl GameQueueActor {
         if let Some(rvc) = &post_processing.rvc {
             // TODO
         }
+        let took = timer.elapsed();
+        tracing::debug!(?took, "Finished post-processing");
         
         Ok(BackendTtsResponse {
             gen_time: response.gen_time + timer.elapsed(),

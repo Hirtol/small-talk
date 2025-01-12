@@ -135,6 +135,8 @@ impl PlaybackEngine {
                     self.session_handle
                         .send(GameSessionMessage::AddToQueue(queue_lines))
                         .await?;
+                    // As we're preemptively sending this off we should ensure we don't request _another_ regeneration when actually playing this line.
+                    self.current_queue.iter_mut().for_each(|l| l.line.force_generate = false);
                 }
             }
         }
@@ -168,10 +170,7 @@ impl PlaybackEngine {
     async fn start_playback_request(&mut self, request: PlaybackVoiceLine) -> eyre::Result<()> {
         let (send, recv) = tokio::sync::oneshot::channel();
         self.current_request = Some(recv);
-        self.current_volume = request.volume.unwrap_or(match request.line.model {
-            TtsModel::E2 => 0.4,
-            TtsModel::Xtts => 1.0,
-        });
+        self.current_volume = request.volume.unwrap_or(1.0);
         
         self.session_handle
             .send(GameSessionMessage::Single(request.line, send))

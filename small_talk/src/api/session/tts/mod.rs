@@ -28,6 +28,7 @@ impl From<ApiTtsRequest> for VoiceLine {
             // TODO make these configurable.
             post: Some(PostProcessing {
                 trim_silence: true,
+                normalise: true,
                 rvc: Some(RvcOptions {
                     model: RvcModel::SeedVc,
                     high_quality: false,
