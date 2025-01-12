@@ -20,8 +20,8 @@ self_cell = "1.0.4"
 itertools = "0.13.0"
 
 # ML, llama for efficient CPU embeddings
-llama-cpp-2 = { git = "https://github.com/utilityai/llama-cpp-rs/", features = [] }
-llama-cpp-sys-2 = { git = "https://github.com/utilityai/llama-cpp-rs/", features = [] }
+llama-cpp-2 = { git = "https://github.com/utilityai/llama-cpp-rs", rev = "a103be60d05885fcae99665a397e72ba3533c925", features = [] }
+llama-cpp-sys-2 = { git = "https://github.com/utilityai/llama-cpp-rs", rev = "a103be60d05885fcae99665a397e72ba3533c925", features = [] }
 burn = { version = "0.15.0", features = ["autodiff", "wgpu", "train", "ndarray"] }
 burn-import = "0.15.0"
 
