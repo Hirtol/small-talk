@@ -23,6 +23,7 @@ use tokio::{
 };
 use tokio::sync::broadcast;
 use crate::system::{PostProcessing, TtsModel, TtsVoice};
+use crate::system::config::TtsSystemConfig;
 use crate::system::error::GameSessionError;
 use crate::system::playback::PlaybackEngineHandle;
 use crate::system::voice_manager::FsVoiceData;
@@ -54,7 +55,7 @@ impl GameSessionHandle {
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let (send_b, recv_b) = broadcast::channel(100);
         let (notify_send, notify_recv) = tokio::sync::mpsc::channel(1);
-        let (game_data, line_cache) = GameSessionActor::create_or_load_from_file(game_name, &config).await?;
+        let (game_data, line_cache) = GameSessionActor::create_or_load_from_file(game_name, &config.dirs).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
         let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
 
@@ -253,18 +254,16 @@ impl GameSessionActor {
 
     async fn create_or_load_from_file(
         game_name: &str,
-        config: &SharedConfig,
+        config: &TtsSystemConfig,
     ) -> eyre::Result<(GameData, LineCache)> {
-        let dir = super::dirs::game_dir(config, game_name);
-
-        if tokio::fs::try_exists(&dir).await? {
-            Self::load_from_dir(&dir).await
+        if tokio::fs::try_exists(config.game_dir(game_name)).await? {
+            Self::load_from_dir(config, game_name).await
         } else {
-            Self::create(game_name, &dir).await
+            Self::create(game_name, config).await
         }
     }
 
-    async fn create(game_name: &str, dir: &Path) -> eyre::Result<(GameData, LineCache)> {
+    async fn create(game_name: &str, config: &TtsSystemConfig) -> eyre::Result<(GameData, LineCache)> {
         let data = GameData {
             game_name: game_name.into(),
             character_map: Default::default(),
@@ -273,17 +272,19 @@ impl GameSessionActor {
         };
         let out = serde_json::to_vec_pretty(&data)?;
 
-        tokio::fs::create_dir_all(dir).await?;
+        let dir = config.game_dir(game_name);
+        tokio::fs::create_dir_all(&dir).await?;
         tokio::fs::write(dir.join(CONFIG_NAME), &out).await?;
 
         Ok((data, Default::default()))
     }
 
-    async fn load_from_dir(dir: &Path) -> eyre::Result<(GameData, LineCache)> {
+    async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache)> {
+        let dir = conf.game_dir(game_name);
         let game_data = tokio::fs::read(dir.join(CONFIG_NAME)).await?;
         let data = serde_json::from_slice(&game_data)?;
         // If the below doesn't exist we can just re-create it.
-        let line_file = super::dirs::game_dir_lines_cache(dir).join(LINES_NAME);
+        let line_file = conf.game_dir_lines_cache(&dir).join(LINES_NAME);
         let line_cache = tokio::fs::read(line_file).await.unwrap_or_default();
         let lines = serde_json::from_slice(&line_cache).unwrap_or_default();
 
@@ -622,7 +623,8 @@ impl GameSharedData {
 
     /// Serialize all variable state (such as character assignments) to disk.
     async fn save_state(&self) -> eyre::Result<()> {
-        let config_save = super::dirs::game_dir(&self.config, &self.game_data.game_name)
+
+        let config_save = self.config.dirs.game_dir(&self.game_data.game_name)
             .join(CONFIG_NAME);
         let writer = std::io::BufWriter::new(std::fs::File::create(config_save)?);
 
@@ -630,7 +632,7 @@ impl GameSharedData {
     }
 
     fn line_cache_path(&self) -> PathBuf {
-        super::dirs::game_lines_cache(&self.config, &self.game_data.game_name)
+        self.config.dirs.game_lines_cache(&self.game_data.game_name)
     }
 }
 

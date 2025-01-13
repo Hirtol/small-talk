@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
 use crate::system::{Gender, Voice};
+use crate::system::config::TtsSystemConfig;
 use crate::system::error::VoiceManagerError;
 
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ impl VoiceManager {
     }
 
     pub fn get_voice(&self, voice: VoiceReference) -> Result<FsVoiceData, VoiceManagerError> {
-        let path = voice.location.to_path(&self.conf).join(&voice.name);
+        let path = voice.location.to_path(&self.conf.dirs).join(&voice.name);
         if path.exists() {
             Ok(FsVoiceData {
                 dir: path,
@@ -45,7 +46,7 @@ impl VoiceManager {
     }
 
     pub fn get_game_voices(&self, game_name: &str) -> Vec<FsVoiceData> {
-        walkdir::WalkDir::new(super::dirs::game_voice(&self.conf, game_name))
+        walkdir::WalkDir::new(self.conf.dirs.game_voice(game_name))
             .min_depth(1)
             .max_depth(1)
             .into_iter()
@@ -62,7 +63,7 @@ impl VoiceManager {
     }
 
     pub fn get_global_voices(&self) -> Vec<FsVoiceData> {
-        walkdir::WalkDir::new(super::dirs::global_voice(&self.conf))
+        walkdir::WalkDir::new(self.conf.dirs.global_voice())
             .min_depth(1)
             .max_depth(1)
             .into_iter()
@@ -83,7 +84,7 @@ impl VoiceManager {
     /// Renames the sample to the expected name representing the emotion embedded in the sample.
     /// This is later used for sample collection.
     pub fn store_voice_samples(&mut self, dest: VoiceDestination, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
-        let destination = dest.to_path(&self.conf).join(voice_name);
+        let destination = dest.to_path(&self.conf.dirs).join(voice_name);
         std::fs::create_dir_all(&destination)?;
         
         let mut existing_samples = {
@@ -142,13 +143,13 @@ pub enum VoiceDestination {
 }
 
 impl VoiceDestination {
-    pub fn to_path(&self, conf: &Config) -> PathBuf {
+    pub fn to_path(&self, conf: &TtsSystemConfig) -> PathBuf {
         match self {
             VoiceDestination::Global => {
-                super::dirs::global_voice(conf)
+                conf.global_voice()
             },
             VoiceDestination::Game(game_name) => {
-                super::dirs::game_voice(conf, game_name)
+                conf.game_voice(game_name)
             }
         }
     }

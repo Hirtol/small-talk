@@ -104,17 +104,14 @@ impl OrganiseCommand {
         tracing::warn!("Using Whisper emotion detection, this is not perfect");
 
         let device = small_talk_ml::burn::backend::ndarray::NdArrayDevice::default();
-        let classifier_path = small_talk::system::dirs::text_emotion_model_dir(&config);
         let mut emotion_classifier: BasicEmotionClassifier<small_talk_ml::CpuBackend> = BasicEmotionClassifier::new(
-            classifier_path.join("classifier_head"),
-            classifier_path.join("ggml-model-Q4_k.gguf"),
+            &config.dirs.emotion_classifier_model,
+            &config.dirs.bert_embeddings_model,
             device,
         )?;
 
-        let whisper_path = small_talk::system::dirs::whisper_model_dir(&config);
-        // let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-small.en-q8_0.bin"), 12)?;
-        // let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-medium-q5_0.bin"), 12)?;
-        let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-large-v3-turbo-q5_0.bin"), 12)?;
+        let whisper_path = &config.dirs.whisper_model;
+        let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path, 12)?;
 
         // let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
         // let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();

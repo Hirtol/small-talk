@@ -18,6 +18,7 @@ pub mod session;
 pub mod voice_manager;
 pub mod utils;
 pub mod playback;
+pub mod config;
 mod postprocessing;
 mod error;
 
@@ -80,45 +81,5 @@ impl TtsSystem {
         // TODO: Add a 'shutdown' message to the actors for proper shutdown and remove the below
         tokio::time::sleep(Duration::from_secs(1)).await;
         Ok(())
-    }
-}
-
-pub mod dirs {
-    use std::path::{Path, PathBuf};
-    use path_abs::PathOps;
-    use crate::config::Config;
-
-    pub fn game_dir(conf: &Config, game_name: &str) -> PathBuf {
-        conf.dirs.game_data_path().join(game_name)
-    }
-    
-    pub fn game_dir_lines_cache(game_dir: &Path) -> PathBuf {
-        game_dir.join("lines")
-    }
-    
-    pub fn game_lines_cache(conf: &Config, game_name: &str) -> PathBuf {
-        game_dir_lines_cache(&game_dir(conf, game_name))
-    }
-    
-    pub fn game_voice(conf: &Config, game_name: &str) -> PathBuf {
-        game_dir(conf, game_name).join("voices")
-    }
-    
-    pub fn global_voice(conf: &Config) -> PathBuf {
-        conf.dirs.appdata.join("global").join("voices")
-    }
-
-    pub fn game_output(conf: &Config, game_name: &str) -> PathBuf {
-        game_dir(conf, game_name).join("output")
-    }
-
-    /// Returns the directory containing the emotion classifier
-    pub fn text_emotion_model_dir(conf: &Config) -> PathBuf {
-        conf.dirs.model_path().join("text_emotion_classifier")
-    }
-
-    /// Returns the directory containing the whisper models
-    pub fn whisper_model_dir(conf: &Config) -> PathBuf {
-        conf.dirs.model_path().join("whisper").join("ggml")
     }
 }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
+use crate::system::config::TtsSystemConfig;
 use crate::system::tts_backends::alltalk::AllTalkConfig;
 
 pub type SharedConfig = Arc<Config>;
@@ -50,9 +51,11 @@ pub fn save_config(app_settings: &Config) -> eyre::Result<()> {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Config {
     /// Bindings and host address
+    #[serde(default)]
     pub app: ServerConfig,
     /// All directory related configs
-    pub dirs: DirectoryConfig,
+    #[serde(default)]
+    pub dirs: TtsSystemConfig,
     #[serde(default)]
     pub xtts: TtsConfig,
     #[serde(default)]
@@ -69,12 +72,6 @@ pub struct TtsConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DirectoryConfig {
-    /// Directory containing appdata managed by the application, namely ML models.
-    pub appdata: PathBuf,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
@@ -87,30 +84,11 @@ impl ServerConfig {
     }
 }
 
-impl DirectoryConfig {
-    pub fn model_path(&self) -> PathBuf {
-        self.appdata.join("models")
-    }
-    
-    pub fn game_data_path(&self) -> PathBuf {
-        self.appdata.join("game_data")
-    }
-}
-
 impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
             host: "0.0.0.0".to_string(),
             port: 8100,
-        }
-    }
-}
-
-impl Default for DirectoryConfig {
-    fn default() -> Self {
-        let app_dir = crate::get_app_dirs().config_dir;
-        Self {
-            appdata: app_dir.join("appdata"),
         }
     }
 }
