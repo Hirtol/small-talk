@@ -25,6 +25,7 @@ whisper-rs = { git = "https://github.com/Hirtol/whisper-rs", features = ["whispe
 # Audio stuff
 mel_spec = "0.2.7"
 rubato = "0.16.1"
+samplerate = "0.2.4"
 hound = "3.5.1"
 wavers.workspace = true
 ebur128 = "0.1.10"

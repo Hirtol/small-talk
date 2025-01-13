@@ -1,19 +1,25 @@
-use std::fmt::Debug;
-use std::path::{Path, PathBuf};
-use burn::backend::NdArray;
-use burn::data::dataloader::batcher::Batcher;
-use burn::prelude::{Backend, Config, Module};
-use burn::record::{CompactRecorder, Recorder};
+use crate::{
+    embeddings::LLamaEmbedder,
+    emotion_classifier::{
+        data::EmotionBatcher,
+        model::EmotionModel,
+        training::{TrainingConfig},
+    },
+};
+use burn::{
+    backend::NdArray,
+    prelude::{Backend, Config, Module},
+    record::{CompactRecorder, Recorder},
+};
 use error_set::error_set;
-use llama_cpp_2::context::params::LlamaContextParams;
-use llama_cpp_2::model::params::LlamaModelParams;
-use crate::embeddings::LLamaEmbedder;
-use crate::emotion_classifier::data::EmotionBatcher;
-use crate::emotion_classifier::model::EmotionModel;
-use crate::emotion_classifier::training::{LLamaTrainEmbedder, TrainingConfig};
+use llama_cpp_2::{context::params::LlamaContextParams, model::params::LlamaModelParams};
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+};
 
-pub mod model;
 pub mod data;
+pub mod model;
 pub mod training;
 
 error_set! {
@@ -33,7 +39,7 @@ error_set! {
 pub struct BasicEmotionClassifier<B: Backend = NdArray> {
     /// Classifier model, simple linear layer on top of the headings provided by `llama_embedder`
     model: EmotionModel<B>,
-    /// BERT-based model which will generate snippet embeddings. We use Llama.cpp as its CPU inference speed is 
+    /// BERT-based model which will generate snippet embeddings. We use Llama.cpp as its CPU inference speed is
     /// literally 10 to 100 times faster than implementing it in Rust (irrespective of frameworks atm, they all suck for CPU inference).
     llama_embedder: LLamaEmbedder,
     batcher: EmotionBatcher<B>,
@@ -43,17 +49,20 @@ pub struct BasicEmotionClassifier<B: Backend = NdArray> {
 impl<B: Backend> BasicEmotionClassifier<B> {
     /// Create a new emotion classifier
     #[tracing::instrument]
-    pub fn new(classifier_path: impl AsRef<Path> + Debug, embedder_path: impl AsRef<Path> + Debug, device: B::Device) -> Result<Self, LoadError> {
+    pub fn new(
+        classifier_path: impl AsRef<Path> + Debug,
+        embedder_path: impl AsRef<Path> + Debug,
+        device: B::Device,
+    ) -> Result<Self, LoadError> {
         tracing::trace!("Loading emotion classifier");
         let classifier = classifier_path.as_ref();
-        let config =
-            TrainingConfig::load(classifier.join("config.json"))?;
+        let config = TrainingConfig::load(classifier.join("config.json"))?;
         let record = CompactRecorder::new()
             .load(classifier.join("model"), &device)
             .expect("Trained model should exist");
 
         let model = config.model.init::<B>(&device).load_record(record);
-        
+
         tracing::trace!("Loading BERT embeddings");
         let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
         let ctx_params = LlamaContextParams::default()
@@ -63,17 +72,17 @@ impl<B: Backend> BasicEmotionClassifier<B> {
             .with_n_batch(512)
             .with_embeddings(true);
         let llama = LLamaEmbedder::new(embedder_path, model_params, ctx_params, None)?;
-        
+
         Ok(Self {
             model,
             llama_embedder: llama,
             batcher: EmotionBatcher::new(device.clone()),
-            device
+            device,
         })
     }
-    
+
     /// Infer the [BasicEmotion] of each text snippet provided in `texts`.
-    /// 
+    ///
     /// # Arguments
     /// * `texts` - An ordered iterator, the first item in the result will match with the first text snippet in the iterator.
     #[tracing::instrument(skip_all)]
@@ -84,7 +93,11 @@ impl<B: Backend> BasicEmotionClassifier<B> {
         let output = self.model.forward(embedding_tensor);
         let classes = output.argmax(1).flatten::<1>(0, 1).into_data();
         let classes_indexes: &[i32] = classes.as_slice().expect("Invalid data cast");
-        Ok(classes_indexes.iter().copied().flat_map(BasicEmotion::try_from).collect())
+        Ok(classes_indexes
+            .iter()
+            .copied()
+            .flat_map(BasicEmotion::try_from)
+            .collect())
     }
 }
 
@@ -109,22 +122,22 @@ pub enum BasicEmotion {
     Anger = 4,
     Sadness = 5,
     Disgust = 6,
-    Fear = 7
+    Fear = 7,
 }
 
 impl BasicEmotion {
     pub fn matches_file(&self, file_name: &str) -> bool {
         file_name.to_lowercase().contains(BASIC_EMOTIONS[*self as usize])
     }
-    
+
     pub fn from_file_name(file_name: &str) -> Option<BasicEmotion> {
         let lower_case = file_name.to_lowercase();
         for (i, emotion) in BASIC_EMOTIONS.iter().enumerate() {
             if lower_case.contains(emotion) {
-                return BasicEmotion::try_from(i as i32).ok()
+                return BasicEmotion::try_from(i as i32).ok();
             }
         }
-        
+
         None
     }
 }
@@ -142,7 +155,7 @@ impl TryFrom<i32> for BasicEmotion {
             5 => Ok(BasicEmotion::Sadness),
             6 => Ok(BasicEmotion::Disgust),
             7 => Ok(BasicEmotion::Fear),
-            _ => Err(OutOfRangeError::NoEmotionMapped)
+            _ => Err(OutOfRangeError::NoEmotionMapped),
         }
     }
 }

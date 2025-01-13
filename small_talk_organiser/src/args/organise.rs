@@ -64,13 +64,12 @@ impl ExternalWhisperLib {
 impl OrganiseCommand {
     #[tracing::instrument(skip_all, fields(self.sample_path))]
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
-        let external_whisp = ExternalWhisperLib::new("./small_talk_whisper.dll")?;
         let mut voice_man = VoiceManager::new(config.clone());
 
         let destination = if self.destination == "global" {
             VoiceDestination::Global
         } else {
-            VoiceDestination::Game(&self.destination)
+            VoiceDestination::Game(self.destination)
         };
         let mut queue: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
@@ -104,16 +103,21 @@ impl OrganiseCommand {
 
         tracing::warn!("Using Whisper emotion detection, this is not perfect");
 
-        let classifier_path = config.dirs.model_path().join("text_emotion_classifier");
         let device = small_talk_ml::burn::backend::ndarray::NdArrayDevice::default();
+        let classifier_path = small_talk::system::dirs::text_emotion_model_dir(&config);
         let mut emotion_classifier: BasicEmotionClassifier<small_talk_ml::CpuBackend> = BasicEmotionClassifier::new(
             classifier_path.join("classifier_head"),
             classifier_path.join("ggml-model-Q4_k.gguf"),
             device,
         )?;
-        
-        let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
-        let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();
+
+        let whisper_path = small_talk::system::dirs::whisper_model_dir(&config);
+        // let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-small.en-q8_0.bin"), 12)?;
+        // let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-medium-q5_0.bin"), 12)?;
+        let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path.join("ggml-large-v3-turbo-q5_0.bin"), 12)?;
+
+        // let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
+        // let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();
 
         let total_samples_to_process = queue.values().map(|d| d.len()).sum::<usize>();
 
@@ -134,7 +138,8 @@ impl OrganiseCommand {
                     continue;
                 }
 
-                let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
+                // let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
+                let full_text = whisper.transcribe_file(&sample)?;
 
                 let emotion = emotion_classifier
                     .infer([&full_text.trim()])?

@@ -32,6 +32,7 @@ burn-import = "0.15.0"
 
 # Audio stuff
 rubato = "0.16.1"
+samplerate = "0.2.4"
 wavers.workspace = true
 
 serde.workspace = true

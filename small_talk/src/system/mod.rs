@@ -111,4 +111,14 @@ pub mod dirs {
     pub fn game_output(conf: &Config, game_name: &str) -> PathBuf {
         game_dir(conf, game_name).join("output")
     }
+
+    /// Returns the directory containing the emotion classifier
+    pub fn text_emotion_model_dir(conf: &Config) -> PathBuf {
+        conf.dirs.model_path().join("text_emotion_classifier")
+    }
+
+    /// Returns the directory containing the whisper models
+    pub fn whisper_model_dir(conf: &Config) -> PathBuf {
+        conf.dirs.model_path().join("whisper").join("ggml")
+    }
 }
