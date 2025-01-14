@@ -6,7 +6,7 @@ use crate::{
         CharacterName, CharacterVoice, Gender, TtsResponse, TtsSystemHandle, Voice, VoiceLine,
     },
 };
-use eyre::ContextCompat;
+use eyre::{Context, ContextCompat};
 use itertools::Itertools;
 use path_abs::PathOps;
 use rand::{prelude::IteratorRandom, thread_rng};
@@ -311,6 +311,9 @@ impl GameQueueActor {
                         GameSessionError::VoiceDoesNotExist { voice } => {
                             tracing::warn!("Ignoring request which requested non-existant voice: {voice}")
                         }
+                        GameSessionError::IncorrectGeneration => {
+                            tracing::warn!("Skipping line request after too many generation failure")
+                        }
                     }
                     _ => {}
                 }
@@ -378,14 +381,30 @@ impl GameQueueActor {
             voice_reference: vec![sample],
             speed: None,
         };
-        let response = self.tts.tts_request(voice_line.model, request).await?;
-        
-        let response = if let Some(post) = voice_line.post.as_ref() {
-            self.postprocess(&voice_line, post, response).await?
-        } else {
-            response
+
+        let mut response = None;
+        for i in 0..3 {
+            let response_gen = self.tts.tts_request(voice_line.model, request.clone()).await?;
+            response = if let Some(post) = voice_line.post.as_ref() {
+                match self.postprocess(&voice_line, post, response_gen).await {
+                    Ok(response) => Some(response),
+                    Err(GameSessionError::IncorrectGeneration) => {
+                        tracing::trace!(attempt=i, "Failed to generate voice line, retrying");
+                        // Retry with a new generation
+                        continue;
+                    }
+                    Err(e) => return Err(e)
+                }
+            } else {
+                Some(response_gen)
+            };
+
+            break;
+        }
+        let Some(response) = response else {
+            return Err(GameSessionError::IncorrectGeneration)
         };
-        
+
         let out = self.transform_response(voice_to_use, voice_line, response).await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
@@ -400,13 +419,25 @@ impl GameQueueActor {
     /// 
     /// This includes but is not limited to, silence trimming, low/high-pass filters.
     #[tracing::instrument(skip_all)]
-    async fn postprocess(&mut self, voice_line: &VoiceLine, post_processing: &PostProcessing, response: BackendTtsResponse) -> eyre::Result<BackendTtsResponse> {
+    async fn postprocess(&mut self, voice_line: &VoiceLine, post_processing: &PostProcessing, response: BackendTtsResponse) -> Result<BackendTtsResponse, GameSessionError> {
         let should_trim = post_processing.trim_silence;
         let should_normalise = post_processing.normalise;
         
         let timer = std::time::Instant::now();
+
         let new_audio_path = match response.result.clone() {
             TtsResult::File(temp_path) => {
+                // First we check with Whisper (if desired) matches our prompt.
+                if let Some(percent) = post_processing.verify_percentage {
+                    let score = self.tts.verify_prompt(&temp_path, &voice_line.line).await?;
+                    tracing::trace!(?score, "Whisper TTS match");
+                    // There will obviously be transcription errors, so we choose a relatively
+                    if score < (percent as f32 / 100.0) {
+                        return Err(GameSessionError::IncorrectGeneration)
+                    }
+                }
+
+                // Then we run our audio post-processing to clean it up for human ears.
                 tokio::task::spawn_blocking(move || {
                     let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
                     let mut sample_data: &mut [f32] = &mut raw_audio_data.read()?;
@@ -428,7 +459,7 @@ impl GameQueueActor {
                     }
                     
                     Ok::<_, eyre::Error>(temp_path)
-                }).await??
+                }).await.context("Failed to join")??
             }
             TtsResult::Stream => unimplemented!("Streams are not yet supported")
         };

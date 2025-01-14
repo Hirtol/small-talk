@@ -10,8 +10,7 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeFile};
 use tower_http::trace::TraceLayer;
-
-
+use small_talk_ml::stt::WhisperTranscribe;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
 use crate::system::{TtsSystem, TtsSystemHandle};
@@ -48,7 +47,9 @@ impl Application {
             api: config.f5_tts.alltalk_cfg.clone(),
         };
         let f5 = LocalAllTalkHandle::new(all_talk_cfg)?;
-        let backends = TtsBackend::new(xtts, f5);
+        let cpu_threads = std::thread::available_parallelism()?.get() / 2;
+        let whisper = WhisperTranscribe::new(&config.dirs.whisper_model, cpu_threads as u16)?;
+        let backends = TtsBackend::new(xtts, f5, whisper);
         let handle = Arc::new(TtsSystem::new(config.clone(), backends));
         
         let result = Application {

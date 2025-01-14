@@ -26,6 +26,7 @@ impl VoiceManager {
 
     pub fn get_voice(&self, voice: VoiceReference) -> Result<FsVoiceData, VoiceManagerError> {
         let path = voice.location.to_path(&self.conf.dirs).join(&voice.name);
+
         if path.exists() {
             Ok(FsVoiceData {
                 dir: path,

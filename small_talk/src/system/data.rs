@@ -32,6 +32,12 @@ pub struct VoiceLine {
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct PostProcessing {
+    /// Verify whether a voice line was generated correctly by running Whisper on it.
+    ///
+    /// The given percentage should be in the range `[0..100]`,
+    /// where a higher percentage means a larger match with the original prompt.
+    /// If the TTS is below this threshold it will be regenerated.
+    pub verify_percentage: Option<u8>,
     /// Whether to remove leading and trailing silences from the generated file
     pub trim_silence: bool,
     /// Whether to normalise the audio that was generated.

@@ -25,6 +25,8 @@ error_set.workspace = true
 itertools = { workspace = true }
 papaya = { version = "0.1.4", features = ["serde"] }
 rand = "0.8.5"
+strsim = "0.11.1"
+
 
 tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
@@ -63,5 +65,8 @@ rodio = "0.20.1"
 wavers.workspace = true
 ebur128 = "0.1.10"
 # ML
-small_talk_ml = {path = "../small_talk_ml"}
-process-wrap = { version = "8.0.2", features = ["tokio1"] }
+small_talk_ml = {path = "../small_talk_ml", features = ["cuda"]}
+process-wrap = { version = "8.2", features = ["tokio1"] }
+
+[dev-dependencies]
+tracing-test = "0.2.5"

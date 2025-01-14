@@ -48,7 +48,6 @@ impl TtsSystemConfig {
     }
 
     pub fn global_voice(&self) -> PathBuf {
-        // We pretend 'global' is a game everyone can see.
-        self.game_voice("global")
+        self.appdata_dir.join("global").join("voices")
     }
 }
