@@ -205,7 +205,7 @@ impl LocalAllTalk {
     async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
         let child = Self::start_alltalk(&self.config.instance_path).await?;
         let api = AllTalkTTS::new(self.config.api.clone()).await?;
-        
+
         Ok(self.state.insert(TemporaryState {
             tts: api,
             process: child,
@@ -219,13 +219,21 @@ impl LocalAllTalk {
     #[tracing::instrument]
     async fn start_alltalk(path: &Path) -> eyre::Result<Box<dyn TokioChildWrapper>> {
         tracing::debug!("Attempting to start AllTalk process");
-        let start_bat = path.join("start_alltalk.bat");
+        let alltalk_env = path.join("alltalk_environment");
+        let conda_env = alltalk_env.join("conda");
+        let env_env = alltalk_env.join("env");
+        let python_exe = env_env.join("python.exe");
 
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/C", &start_bat.to_string_lossy()])
+        let mut cmd = Command::new(python_exe);
+        cmd.envs(std::env::vars());
+        cmd.env("CONDA_ROOT_PREFIX", conda_env);
+        cmd.env("INSTALL_ENV_DIR", env_env);
+        cmd.args(["script.py"])
             .kill_on_drop(true)
+            .current_dir(path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
         let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
         wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
@@ -249,17 +257,23 @@ impl LocalAllTalk {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Stdio;
     use std::time::Duration;
+    use process_wrap::tokio::TokioChildWrapper;
+    use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
     use crate::system::tts_backends::alltalk::AllTalkConfig;
     use crate::system::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkConfig, LocalAllTalkHandle};
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     pub async fn basic_test() {
         let cfg = LocalAllTalkConfig {
             instance_path: r"G:\TTS\alltalk_tts\".into(),
             timeout: Duration::from_secs(2),
-            api: AllTalkConfig::new("localhost:7581".try_into().unwrap()),
+            api: AllTalkConfig::new("http://localhost:7581".try_into().unwrap()),
         };
+
         let handle = LocalAllTalkHandle::new(cfg).unwrap();
         
         handle.send.send(AllTalkMessage::StartInstance).await.unwrap();
