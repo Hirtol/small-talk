@@ -48,5 +48,4 @@ toml = "0.8"
 small_talk_ml = { path = "../small_talk_ml", features = ["cuda"] }
 small_talk = { path = "../small_talk" }
 libloading = "0.8.5"
-faster-whisper-rs = "0.2.0"
 hound = { version = "3.5.1" }

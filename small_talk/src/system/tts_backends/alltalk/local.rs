@@ -223,6 +223,7 @@ impl LocalAllTalk {
         let conda_env = alltalk_env.join("conda");
         let env_env = alltalk_env.join("env");
         let python_exe = env_env.join("python.exe");
+        let log_file = std::fs::File::create(path.join("small_talk.log"))?;
 
         let mut cmd = Command::new(python_exe);
         cmd.envs(std::env::vars());
@@ -231,7 +232,7 @@ impl LocalAllTalk {
         cmd.args(["script.py"])
             .kill_on_drop(true)
             .current_dir(path)
-            .stdout(Stdio::piped())
+            .stdout(log_file)
             .stderr(Stdio::piped());
 
         let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
