@@ -19,6 +19,7 @@ burn = { version = "0.15.0", features = ["autodiff", "wgpu", "train", "ndarray"]
 burn-import = "0.15.0"
 ort = { version = "2.0.0-rc.9", features = ["copy-dylibs", "load-dynamic", "cuda", "directml"] }
 small_talk_ml = {path = "../small_talk_ml"}
+pyo3 = { version = "0.23.4", features = ["auto-initialize"] }
 # whisper-rs = {path = "../../whisper-rs", features = ["whisper-cpp-tracing"]}
 whisper-rs = { git = "https://github.com/Hirtol/whisper-rs", features = ["whisper-cpp-tracing"]}
 
