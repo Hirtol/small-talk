@@ -10,7 +10,7 @@ pub mod local;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllTalkConfig {
-    address: Url,
+    pub address: Url,
 }
 
 impl AllTalkConfig {

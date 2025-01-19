@@ -7,6 +7,7 @@ use std::time::Duration;
 use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
 use crate::system::config::TtsSystemConfig;
+use crate::system::rvc_backends::seedvc::api::SeedVcApiConfig;
 use crate::system::tts_backends::alltalk::AllTalkConfig;
 
 pub type SharedConfig = Arc<Config>;
@@ -60,6 +61,8 @@ pub struct Config {
     pub xtts: TtsConfig,
     #[serde(default)]
     pub f5_tts: TtsConfig,
+    #[serde(default)]
+    pub seed_vc: RvcConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -69,6 +72,15 @@ pub struct TtsConfig {
     /// How long until the resources allocated to the local ML should be freed after not being used.
     pub timeout: Duration,
     pub alltalk_cfg: AllTalkConfig,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RvcConfig {
+    /// Directory containing a SeedVc instance.
+    pub local_path: PathBuf,
+    /// How long until the resources allocated to the local ML should be freed after not being used.
+    pub timeout: Duration,
+    pub config: SeedVcApiConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -100,6 +112,19 @@ impl Default for TtsConfig {
             local_all_talk: app_dir.join("alltalk"),
             timeout: Duration::from_secs(30 * 60),
             alltalk_cfg: AllTalkConfig::new(url::Url::parse("http://localhost:7851/").unwrap()),
+        }
+    }
+}
+
+impl Default for RvcConfig {
+    fn default() -> Self {
+        let app_dir = crate::get_app_dirs().config_dir;
+        Self {
+            local_path: app_dir.join("seedvc"),
+            timeout: Duration::from_secs(30 * 60),
+            config: SeedVcApiConfig {
+                address: url::Url::parse("http://localhost:9999/").unwrap()
+            },
         }
     }
 }

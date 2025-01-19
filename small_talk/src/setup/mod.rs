@@ -14,6 +14,8 @@ use small_talk_ml::stt::WhisperTranscribe;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
 use crate::system::{TtsSystem, TtsSystemHandle};
+use crate::system::rvc_backends::RvcBackend;
+use crate::system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig};
 use crate::system::tts_backends::alltalk::AllTalkConfig;
 use crate::system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
 use crate::system::tts_backends::TtsBackend;
@@ -49,8 +51,17 @@ impl Application {
         let f5 = LocalAllTalkHandle::new(all_talk_cfg)?;
         let cpu_threads = std::thread::available_parallelism()?.get() / 2;
         let whisper = WhisperTranscribe::new(&config.dirs.whisper_model, cpu_threads as u16)?;
-        let backends = TtsBackend::new(xtts, f5, whisper);
-        let handle = Arc::new(TtsSystem::new(config.clone(), backends));
+        let tts_backend = TtsBackend::new(xtts, f5, whisper);
+
+        let seedvc_cfg = LocalSeedVcConfig {
+            instance_path: config.seed_vc.local_path.clone(),
+            timeout: config.seed_vc.timeout,
+            api: config.seed_vc.config.clone(),
+        };
+        let seedvc = LocalSeedHandle::new(seedvc_cfg)?;
+        let rvc_backend = RvcBackend::new(seedvc);
+
+        let handle = Arc::new(TtsSystem::new(config.clone(), tts_backend, rvc_backend));
         
         let result = Application {
             tcp,

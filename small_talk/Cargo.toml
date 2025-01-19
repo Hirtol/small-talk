@@ -26,6 +26,7 @@ itertools = { workspace = true }
 papaya = { version = "0.1.4", features = ["serde"] }
 rand = "0.8.5"
 strsim = "0.11.1"
+bytemuck = "1.21.0"
 
 
 tokio = { version = "1", features = ["full"] }
@@ -35,7 +36,7 @@ axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"
 axum-extra = { version = "0.9.6", features = [] }
 tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
 tower-http = { version = "0.6.1", features = ["full"] }
-reqwest = { version = "0.12.9", features = ["json"] }
+reqwest = { version = "0.12.9", features = ["json", "multipart"] }
 url = { version = "2.5.4", features = ["serde"] }
 
 axum-jsonschema = { version = "0.8.0", features = ["aide"] }
@@ -64,6 +65,7 @@ toml = "0.8"
 rodio = "0.20.1"
 wavers.workspace = true
 ebur128 = "0.1.10"
+
 # ML
 small_talk_ml = {path = "../small_talk_ml", features = ["cuda"]}
 process-wrap = { version = "8.2", features = ["tokio1"] }
