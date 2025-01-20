@@ -20,6 +20,7 @@ pub struct LocalSeedVcConfig {
     pub instance_path: PathBuf,
     pub timeout: Duration,
     pub api: SeedVcApiConfig,
+    pub high_quality: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,14 @@ impl LocalSeedHandle {
         });
 
         Ok(Self { send })
+    }
+
+    pub async fn start_instance(&self) -> eyre::Result<()> {
+        Ok(self.send.send(SeedMessage::StartInstance).await?)
+    }
+
+    pub async fn stop_instance(&self) -> eyre::Result<()> {
+        Ok(self.send.send(SeedMessage::StopInstance).await?)
     }
 
     /// Send a RVC request to the SeedVc instance.
@@ -165,7 +174,7 @@ impl LocalSeedVc {
     /// Force create and replace the current state by creating a new SeedVc instance.
     #[tracing::instrument(skip(self))]
     async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
-        let child = Self::start_seedvc(&self.config.instance_path).await?;
+        let child = Self::start_seedvc(&self.config.instance_path, self.config.high_quality).await?;
         let api = SeedRvc::new(self.config.api.clone()).await?;
 
         Ok(self.state.insert(TemporaryState {
@@ -179,7 +188,7 @@ impl LocalSeedVc {
     ///
     /// Note that this spawns a sub-process.
     #[tracing::instrument]
-    async fn start_seedvc(path: &Path) -> eyre::Result<Box<dyn TokioChildWrapper>> {
+    async fn start_seedvc(path: &Path, high_quality: bool) -> eyre::Result<Box<dyn TokioChildWrapper>> {
         tracing::debug!("Attempting to start SeedVc process");
         let seed_env = path.join(".venv").join("Scripts");
         let python_exe = seed_env.join("python.exe");
@@ -193,6 +202,13 @@ impl LocalSeedVc {
             .current_dir(path)
             .stdout(log_file)
             .stderr(Stdio::piped());
+
+        if high_quality {
+            cmd.args(["--diffusion-steps", "20", "--f0-condition", "True", "--inference-cfg-rate", "0.7"]);
+        } else {
+            // A few extra steps for the lower-quality model to make up for the difference
+            cmd.args(["--diffusion-steps", "25", "--inference-cfg-rate", "0.7"]);
+        }
 
         let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
         wrapped.wrap(process_wrap::tokio::KillOnDrop);

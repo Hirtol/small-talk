@@ -26,7 +26,9 @@ use crate::system::{PostProcessing, TtsModel, TtsVoice};
 use crate::system::config::TtsSystemConfig;
 use crate::system::error::GameSessionError;
 use crate::system::playback::PlaybackEngineHandle;
-use crate::system::voice_manager::FsVoiceData;
+use crate::system::postprocessing::AudioData;
+use crate::system::rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult};
+use crate::system::voice_manager::{FsVoiceData, FsVoiceSample};
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
@@ -43,11 +45,12 @@ pub struct GameSessionHandle {
 }
 
 impl GameSessionHandle {
-    #[tracing::instrument(skip(config, tts, voice_man))]
+    #[tracing::instrument(skip(config, tts, rvc, voice_man))]
     pub async fn new(
         game_name: &str,
         voice_man: Arc<VoiceManager>,
         tts: TtsBackend,
+        rvc: RvcBackend,
         config: SharedConfig,
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);
@@ -76,6 +79,7 @@ impl GameSessionHandle {
         let queue_actor = GameQueueActor {
             broadcast: send_b,
             tts,
+            rvc,
             data: shared_data.clone(),
             notify: notify_recv,
             generations_count: 0,
@@ -175,6 +179,7 @@ struct GameQueueActor {
     broadcast: tokio::sync::broadcast::Sender<Arc<TtsResponse>>,
 
     tts: TtsBackend,
+    rvc: RvcBackend,
     data: Arc<GameSharedData>,
     notify: tokio::sync::mpsc::Receiver<()>,
 
@@ -207,7 +212,13 @@ impl GameSessionActor {
                 tracing::trace!("Stopping GameSessionActor as channel was closed");
                 break;
             };
-            self.handle_message(msg).await?;
+
+            if let Err(e) = self.handle_message(msg).await {
+                // First persist our data
+                self.data.save_cache().await?;
+                self.data.save_state().await?;
+                return Err(e)
+            }
         }
 
         self.data.save_cache().await?;
@@ -348,6 +359,13 @@ impl GameQueueActor {
         if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
             return Ok(response);
         }
+        // If we want to use RVC we'll try and warm it up before the TTS request to save time
+        if let Some(post) = &voice_line.post {
+            if let Some(rvc) = &post.rvc {
+                self.rvc.prepare_instance(rvc.high_quality).await?;
+            }
+        }
+
         let voice_to_use = match &voice_line.person {
             TtsVoice::ForceVoice(forced) => {
                 forced.clone()
@@ -374,6 +392,7 @@ impl GameQueueActor {
             _ => voice.random_sample()?,
         };
 
+        let sample_path = sample.sample.clone();
         // TODO: Configurable language
         let request = BackendTtsRequest {
             gen_text: voice_line.line.clone(),
@@ -386,7 +405,7 @@ impl GameQueueActor {
         for i in 0..3 {
             let response_gen = self.tts.tts_request(voice_line.model, request.clone()).await?;
             response = if let Some(post) = voice_line.post.as_ref() {
-                match self.postprocess(&voice_line, post, response_gen).await {
+                match self.postprocess(&voice_line, sample_path.clone(), post, response_gen).await {
                     Ok(response) => Some(response),
                     Err(GameSessionError::IncorrectGeneration) => {
                         tracing::trace!(attempt=i, "Failed to generate voice line, retrying");
@@ -419,13 +438,13 @@ impl GameQueueActor {
     /// 
     /// This includes but is not limited to, silence trimming, low/high-pass filters.
     #[tracing::instrument(skip_all)]
-    async fn postprocess(&mut self, voice_line: &VoiceLine, post_processing: &PostProcessing, response: BackendTtsResponse) -> Result<BackendTtsResponse, GameSessionError> {
+    async fn postprocess(&mut self, voice_line: &VoiceLine, voice_sample: PathBuf, post_processing: &PostProcessing, response: BackendTtsResponse) -> Result<BackendTtsResponse, GameSessionError> {
         let should_trim = post_processing.trim_silence;
         let should_normalise = post_processing.normalise;
         
         let timer = std::time::Instant::now();
 
-        let new_audio_path = match response.result.clone() {
+        let (new_audio, destination_path) = match response.result.clone() {
             TtsResult::File(temp_path) => {
                 // First we check with Whisper (if desired) matches our prompt.
                 if let Some(percent) = post_processing.verify_percentage {
@@ -440,39 +459,50 @@ impl GameQueueActor {
                 // Then we run our audio post-processing to clean it up for human ears.
                 tokio::task::spawn_blocking(move || {
                     let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
-                    let mut sample_data: &mut [f32] = &mut raw_audio_data.read()?;
-
-                    let mut made_change = false;
+                    let mut audio = AudioData::new(&mut raw_audio_data)?;
+                    let mut sample_data: &mut [f32] = &mut audio.samples;
 
                     if should_trim {
                         // Basically any signal should count.
                         sample_data = super::postprocessing::trim_lead(sample_data, raw_audio_data.n_channels(), 0.01);
-                        made_change = true;
                     }
                     if should_normalise {
-                        super::postprocessing::loudness_normalise(sample_data, raw_audio_data.sample_rate(), raw_audio_data.n_channels());
-                        made_change = true;
+                        super::postprocessing::loudness_normalise(sample_data, raw_audio_data.sample_rate() as u32, raw_audio_data.n_channels());
                     }
-
-                    if made_change {
-                        wavers::write(&temp_path, sample_data, raw_audio_data.sample_rate(), raw_audio_data.n_channels())?;
-                    }
+                    audio.samples = sample_data.to_vec();
                     
-                    Ok::<_, eyre::Error>(temp_path)
+                    Ok::<_, eyre::Error>((audio, temp_path))
                 }).await.context("Failed to join")??
             }
             TtsResult::Stream => unimplemented!("Streams are not yet supported")
         };
        
         if let Some(rvc) = &post_processing.rvc {
-            // TODO
+            let req = BackendRvcRequest {
+                audio: new_audio,
+                target_voice: voice_sample,
+            };
+            let out = self.rvc.rvc_request(req, rvc.high_quality).await?;
+
+            match out.result {
+                RvcResult::Wav(mut data) => {
+                    // Silence is still cut out, but we might need to re-normalise.
+                    if should_normalise {
+                        super::postprocessing::loudness_normalise(&mut data.samples, data.sample_rate, data.n_channels);
+                    }
+                    data.write_to_file(&destination_path)?;
+                }
+                RvcResult::Stream => unimplemented!("Streams are not yet supported"),
+            }
+            tracing::debug!(?out.gen_time, "Finished Rvc")
         }
+
         let took = timer.elapsed();
         tracing::debug!(?took, "Finished post-processing");
         
         Ok(BackendTtsResponse {
-            gen_time: response.gen_time + timer.elapsed(),
-            result: TtsResult::File(new_audio_path),
+            gen_time: response.gen_time + took,
+            result: TtsResult::File(destination_path),
         })
     }
 
@@ -538,7 +568,7 @@ impl GameSharedData {
             }
         };
         tracing::trace!(?voice_to_use, "Will try to use voice for cache");
-        
+        // TODO: Debug race condition causing rare hanging after this line
         // First check if we have a cache reference
         if !voice_line.force_generate {
             if let Some(file_name) = self

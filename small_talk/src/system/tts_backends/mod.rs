@@ -54,7 +54,9 @@ impl TtsBackend {
 
             whisp.transcribe_file(wav_file)
         }).await??;
-        let leven = strsim::levenshtein(&output, original_prompt);
+        // Can cause problems if we don't remove these for short quotes.
+        let original_without_quotes = original_prompt.trim_start_matches('"').trim_end_matches('"');
+        let leven = strsim::levenshtein(&output, original_without_quotes);
         let ratio = leven as f32 / original_prompt.chars().count() as f32;
         Ok(1.0 - ratio)
     }

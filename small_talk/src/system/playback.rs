@@ -126,10 +126,7 @@ impl PlaybackEngine {
                 self.audio_sink.clear();
                 self.current_request = None;
                 self.current_queue = lines;
-                if let Some(request) = self.current_queue.pop_front() {
-                    self.start_playback_request(request).await?;
-                }
-                // Add the remaining items to a generation queue so that playbacks after the current one are quick
+                // Add the items to a generation queue so that playbacks after the current one are quick
                 if !self.current_queue.is_empty() {
                     let queue_lines = self.current_queue.iter().map(|l| l.line.clone()).collect();
                     self.session_handle
@@ -137,6 +134,12 @@ impl PlaybackEngine {
                         .await?;
                     // As we're preemptively sending this off we should ensure we don't request _another_ regeneration when actually playing this line.
                     self.current_queue.iter_mut().for_each(|l| l.line.force_generate = false);
+                }
+
+                // Actually request our first voice line
+                // TODO: Currently if our TTS engine is currently handling the request with `force_generate` we will still play the old cached line.
+                if let Some(request) = self.current_queue.pop_front() {
+                    self.start_playback_request(request).await?;
                 }
             }
         }

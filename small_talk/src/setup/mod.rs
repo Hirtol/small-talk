@@ -53,13 +53,16 @@ impl Application {
         let whisper = WhisperTranscribe::new(&config.dirs.whisper_model, cpu_threads as u16)?;
         let tts_backend = TtsBackend::new(xtts, f5, whisper);
 
-        let seedvc_cfg = LocalSeedVcConfig {
+        let mut seedvc_cfg = LocalSeedVcConfig {
             instance_path: config.seed_vc.local_path.clone(),
             timeout: config.seed_vc.timeout,
             api: config.seed_vc.config.clone(),
+            high_quality: false,
         };
-        let seedvc = LocalSeedHandle::new(seedvc_cfg)?;
-        let rvc_backend = RvcBackend::new(seedvc);
+        let seedvc = LocalSeedHandle::new(seedvc_cfg.clone())?;
+        seedvc_cfg.high_quality = true;
+        let seedvc_hq = LocalSeedHandle::new(seedvc_cfg)?;
+        let rvc_backend = RvcBackend::new(seedvc, seedvc_hq);
 
         let handle = Arc::new(TtsSystem::new(config.clone(), tts_backend, rvc_backend));
         

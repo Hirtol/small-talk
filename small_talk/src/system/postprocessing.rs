@@ -1,5 +1,9 @@
 //! Audio post-processing for generated TTS files.
 
+use std::fmt::{Debug, Formatter};
+use std::path::Path;
+use wavers::Wav;
+
 /// Remove leading/trailing silences in the given audio.
 ///
 /// Assumes interleaved channel samples in order to correctly chunk the audio.
@@ -46,8 +50,8 @@ pub fn trim_trail(audio_samples: &mut [f32], channel_count: u16, silence_thresho
 /// Attempt to normalise the given samples.
 /// 
 /// Copied from `https://github.com/sdroege/ebur128/blob/main/examples/normalize.rs`
-pub fn loudness_normalise(audio_samples: &mut [f32], sample_rate: i32, channel_count: u16) {
-    let mut ebur128 = ebur128::EbuR128::new(channel_count as u32, sample_rate as u32, ebur128::Mode::I)
+pub fn loudness_normalise(audio_samples: &mut [f32], sample_rate: u32, channel_count: u16) {
+    let mut ebur128 = ebur128::EbuR128::new(channel_count as u32, sample_rate, ebur128::Mode::I)
         .expect("Failed to create ebur128");
     let chunk_size = sample_rate; // 1s
     let target_loudness = -23.0; // EBU R128 standard target loudness
@@ -65,5 +69,36 @@ pub fn loudness_normalise(audio_samples: &mut [f32], sample_rate: i32, channel_c
     for sample in audio_samples {
         let normalized_sample = (*sample * gain).clamp(-1.0, 1.0);
         *sample = normalized_sample;
+    }
+}
+
+#[derive(Clone)]
+pub struct AudioData {
+    pub samples: Vec<f32>,
+    pub n_channels: u16,
+    pub sample_rate: u32,
+}
+
+impl Debug for AudioData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AudioData")
+            .field("n_channels", &self.n_channels)
+            .field("sample_rate", &self.sample_rate)
+            .field("samples", &"...")
+            .finish()
+    }
+}
+
+impl AudioData {
+    pub fn new(wav: &mut Wav<f32>) -> eyre::Result<Self> {
+        Ok(Self {
+            samples: wav.read()?.as_ref().to_vec(),
+            n_channels: wav.n_channels() as u16,
+            sample_rate: wav.sample_rate() as u32,
+        })
+    }
+
+    pub fn write_to_file(&self, destination: &Path) -> eyre::Result<()> {
+        Ok(wavers::write(destination, &self.samples, self.sample_rate as i32, self.n_channels)?)
     }
 }

@@ -62,7 +62,7 @@ impl TtsSystem {
                 return Ok(game_ses.clone())
             }
         }
-        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.config.clone()).await?;
+        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.rvc.clone(), self.config.clone()).await?;
         pin.insert(game.into(), new_session.clone());
 
         Ok(new_session)

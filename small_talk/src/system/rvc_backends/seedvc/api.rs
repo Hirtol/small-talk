@@ -1,6 +1,7 @@
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
+use crate::system::postprocessing::AudioData;
 use crate::system::rvc_backends::{BackendRvcRequest};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,16 +38,18 @@ impl SeedVcApi {
     ///
     /// Returns the output path.
     #[tracing::instrument(skip(self))]
-    pub async fn rvc(&self, request: BackendRvcRequest) -> eyre::Result<wavers::Wav<f32>> {
+    pub async fn rvc(&self, request: BackendRvcRequest) -> eyre::Result<AudioData> {
+        let bytes_to_send = bytemuck::allocation::try_cast_vec(request.audio.samples)
+            .unwrap_or_else(|(_, vec)| bytemuck::cast_slice(&vec).to_vec());
         let form = multipart::Form::new()
             .part(
                 "sound_samples",
-                multipart::Part::bytes(bytemuck::allocation::cast_vec(request.samples))
+                multipart::Part::bytes(bytes_to_send)
                     .file_name("sound_file.raw")
                     .mime_str("application/octet-stream")?,
             )
-            .text("sample_rate", request.sample_rate.to_string())
-            .text("channels", request.channels.to_string())
+            .text("sample_rate", request.audio.sample_rate.to_string())
+            .text("channels", request.audio.n_channels.to_string())
             .text("target_voice", request.target_voice.to_string_lossy().into_owned());
 
         // Make the POST request
@@ -58,9 +61,9 @@ impl SeedVcApi {
         response.error_for_status_ref()?;
         let content = response.bytes().await?;
         let cursor = std::io::Cursor::new(content);
-        let wav = wavers::Wav::new(Box::new(cursor))?;
+        let mut wav = wavers::Wav::new(Box::new(cursor))?;
 
-        Ok(wav)
+        Ok(AudioData::new(&mut wav)?)
     }
 
     fn url(&self, path: &str) -> eyre::Result<Url> {

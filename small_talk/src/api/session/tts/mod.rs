@@ -32,7 +32,7 @@ impl From<ApiTtsRequest> for VoiceLine {
                 normalise: true,
                 rvc: Some(RvcOptions {
                     model: RvcModel::SeedVc,
-                    high_quality: false,
+                    high_quality: true,
                 }),
             }),
         }
