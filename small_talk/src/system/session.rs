@@ -1,34 +1,30 @@
 use crate::{
     config::SharedConfig,
     system::{
+        config::TtsSystemConfig,
+        error::GameSessionError,
+        playback::PlaybackEngineHandle,
+        postprocessing::AudioData,
+        rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult},
         tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsBackend, TtsResult},
-        voice_manager::{VoiceDestination, VoiceManager, VoiceReference},
-        CharacterName, CharacterVoice, Gender, TtsResponse, TtsSystemHandle, Voice, VoiceLine,
+        voice_manager::{FsVoiceData, FsVoiceSample, VoiceDestination, VoiceManager, VoiceReference},
+        CharacterName, CharacterVoice, Gender, PostProcessing, TtsModel, TtsResponse, TtsSystemHandle, TtsVoice, Voice,
+        VoiceLine,
     },
 };
 use eyre::{Context, ContextCompat};
 use itertools::Itertools;
 use path_abs::PathOps;
 use rand::{prelude::IteratorRandom, thread_rng};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
     time::SystemTime,
 };
-use serde::de::Error;
-use tokio::{
-    sync::{broadcast::error::RecvError, Mutex},
-};
-use tokio::sync::broadcast;
-use crate::system::{PostProcessing, TtsModel, TtsVoice};
-use crate::system::config::TtsSystemConfig;
-use crate::system::error::GameSessionError;
-use crate::system::playback::PlaybackEngineHandle;
-use crate::system::postprocessing::AudioData;
-use crate::system::rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult};
-use crate::system::voice_manager::{FsVoiceData, FsVoiceSample};
+use std::sync::atomic::AtomicBool;
+use tokio::sync::{broadcast, broadcast::error::RecvError, Mutex, Notify};
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
@@ -57,16 +53,15 @@ impl GameSessionHandle {
         // Small amount before we exert back-pressure
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let (send_b, recv_b) = broadcast::channel(100);
-        let (notify_send, notify_recv) = tokio::sync::mpsc::channel(1);
         let (game_data, line_cache) = GameSessionActor::create_or_load_from_file(game_name, &config.dirs).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
-        let shared_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let (q_send, q_recv) = ordered_channel();
 
         let shared_data = Arc::new(GameSharedData {
             config,
             voice_manager: voice_man.clone(),
             game_data,
-            queue: shared_queue,
+            queue: q_send,
             line_cache,
         });
 
@@ -74,14 +69,13 @@ impl GameSessionHandle {
             recv,
             b_recv: recv_b,
             data: shared_data.clone(),
-            notify: notify_send,
         };
         let queue_actor = GameQueueActor {
             broadcast: send_b,
             tts,
             rvc,
             data: shared_data.clone(),
-            notify: notify_recv,
+            queue: q_recv,
             generations_count: 0,
         };
 
@@ -95,7 +89,7 @@ impl GameSessionHandle {
                 tracing::error!("GameSessionQueue stopped with error: {e}");
             }
         });
-        
+
         let playback = PlaybackEngineHandle::new(send.clone()).await?;
 
         Ok(Self {
@@ -105,12 +99,12 @@ impl GameSessionHandle {
             voice_man,
         })
     }
-    
+
     /// Check whether this session is still alive, or was somehow taken offline.
     pub fn is_alive(&self) -> bool {
         !self.send.is_closed()
     }
-    
+
     /// Request a handle to the stream of [TtsResponse]s from the generation queue for this session.
     pub async fn broadcast_handle(&self) -> eyre::Result<broadcast::Receiver<Arc<TtsResponse>>> {
         let (send, recv) = tokio::sync::oneshot::channel();
@@ -118,33 +112,40 @@ impl GameSessionHandle {
 
         Ok(recv.await?)
     }
-    
+
     /// Force the character mapping to use the given voice.
     pub async fn force_character_voice(&self, character: CharacterName, voice: VoiceReference) -> eyre::Result<()> {
         tracing::debug!(?character, ?voice, "Forced voice mapping");
         self.data.game_data.character_map.pin().insert(character, voice);
         Ok(())
     }
-    
+
     /// Return all current character voice mappings
     pub async fn character_voices(&self) -> eyre::Result<HashMap<CharacterName, VoiceReference>> {
-        Ok(self.data.game_data.character_map.pin().iter().map(|(c, v)| (c.clone(), v.clone())).collect())
+        Ok(self
+            .data
+            .game_data
+            .character_map
+            .pin()
+            .iter()
+            .map(|(c, v)| (c.clone(), v.clone()))
+            .collect())
     }
 
     /// Return all available voices for this particular game, including global voices.
     pub async fn available_voices(&self) -> eyre::Result<Vec<FsVoiceData>> {
         Ok(self.voice_man.get_voices(&self.data.game_data.game_name))
     }
-    
+
     /// Will add the given items onto the queue for TTS generation.
-    /// 
+    ///
     /// These items will be prioritised over previous queue items
     pub async fn add_all_to_queue(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
         Ok(self.send.send(GameSessionMessage::AddToQueue(items)).await?)
     }
-    
+
     /// Request a single voice line with the highest priority.
-    /// 
+    ///
     /// If this future is dropped prematurely the request will still be handled, and the response will be sent on
     /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
@@ -162,7 +163,7 @@ pub enum GameSessionMessage {
     AddToQueue(Vec<VoiceLine>),
     Single(VoiceLine, tokio::sync::oneshot::Sender<Arc<TtsResponse>>),
     /// Request a direct handle to the TtsResponse stream
-    BroadcastHandle(tokio::sync::oneshot::Sender<broadcast::Receiver<Arc<TtsResponse>>>)
+    BroadcastHandle(tokio::sync::oneshot::Sender<broadcast::Receiver<Arc<TtsResponse>>>),
 }
 
 type SingleRequest = (VoiceLine, Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>);
@@ -171,8 +172,6 @@ pub struct GameSessionActor {
     recv: tokio::sync::mpsc::Receiver<GameSessionMessage>,
     b_recv: broadcast::Receiver<Arc<TtsResponse>>,
     data: Arc<GameSharedData>,
-
-    notify: tokio::sync::mpsc::Sender<()>,
 }
 
 struct GameQueueActor {
@@ -181,7 +180,8 @@ struct GameQueueActor {
     tts: TtsBackend,
     rvc: RvcBackend,
     data: Arc<GameSharedData>,
-    notify: tokio::sync::mpsc::Receiver<()>,
+    queue: OrderedReceiver<SingleRequest>,
+    priority: OrderedReceiver<SingleRequest>,
 
     generations_count: usize,
 }
@@ -191,8 +191,8 @@ struct GameSharedData {
 
     voice_manager: Arc<VoiceManager>,
     game_data: GameData,
-    /// Current queue of requests
-    queue: Arc<Mutex<VecDeque<SingleRequest>>>,
+    queue: OrderedSender<SingleRequest>,
+    priority: OrderedSender<SingleRequest>,
     line_cache: Arc<Mutex<LineCache>>,
 }
 
@@ -217,7 +217,7 @@ impl GameSessionActor {
                 // First persist our data
                 self.data.save_cache().await?;
                 self.data.save_state().await?;
-                return Err(e)
+                return Err(e);
             }
         }
 
@@ -232,13 +232,15 @@ impl GameSessionActor {
         match message {
             GameSessionMessage::AddToQueue(new_lines) => {
                 // Reverse iterator to ensure the push_front will leave us with the correct order in the queue
-                let mut queue = self.data.queue.lock().await;
-                for line in new_lines.into_iter().rev() {
-                    queue.retain(|v| v.0 != line && v.1.is_none());
-                    queue.push_front((line, None));
-                }
-                // Notify the queue worker that we have added new items
-                let _ = self.notify.try_send(());
+                self.data
+                    .queue
+                    .change_queue(|queue| {
+                        for line in new_lines.into_iter().rev() {
+                            queue.retain(|v| v.0 != line && v.1.is_none());
+                            queue.push_front((line, None));
+                        }
+                    })
+                    .await;
             }
             GameSessionMessage::Single(req, response) => {
                 // First check if the cache already contains the required data
@@ -247,10 +249,9 @@ impl GameSessionActor {
                 } else {
                     // Otherwise send a priority request to our queue
                     let (snd, rcv) = tokio::sync::oneshot::channel();
-                    
-                    self.data.queue.lock().await.push_front((req, Some(snd)));
-                    let _ = self.notify.try_send(());
-                    
+
+                    self.data.queue.change_queue(|queue| queue.push_front((req, Some(snd)))).await;
+
                     rcv.await?
                 };
                 // We don't care if the one who requested it has stopped listening
@@ -307,27 +308,24 @@ impl GameQueueActor {
     #[tracing::instrument(skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
-            let Some(_) = self.notify.recv().await else {
-                tracing::trace!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
-                break;
-            };
-            
-            loop {
-                match self.pop_queue().await {
-                    Ok(keep_looping) if !keep_looping => break,
-                    Err(e) => match e {
-                        GameSessionError::Other(e) => {
-                            eyre::bail!(e)
-                        }
-                        GameSessionError::VoiceDoesNotExist { voice } => {
-                            tracing::warn!("Ignoring request which requested non-existant voice: {voice}")
-                        }
-                        GameSessionError::IncorrectGeneration => {
-                            tracing::warn!("Skipping line request after too many generation failure")
-                        }
+            match self.pop_queue().await {
+                Ok(keep_looping) if !keep_looping => break,
+                Err(e) => match e {
+                    GameSessionError::Other(e) => {
+                        // First persist our data
+                        tracing::trace!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
+                        self.data.save_cache().await?;
+                        self.data.save_state().await?;
+                        eyre::bail!(e)
                     }
-                    _ => {}
-                }
+                    GameSessionError::VoiceDoesNotExist { voice } => {
+                        tracing::warn!("Ignoring request which requested non-existant voice: {voice}")
+                    }
+                    GameSessionError::IncorrectGeneration => {
+                        tracing::warn!("Skipping line request after too many generation failure")
+                    }
+                },
+                _ => {}
             }
         }
 
@@ -335,11 +333,8 @@ impl GameQueueActor {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn pop_queue(&mut self) -> GameResult<bool> {
-        let Some((next_item, respond)) = self.data.queue.lock().await.pop_front() else {
-            // Can just return as the queue won't be modified
-            return Ok(false);
-        };
+    async fn pop_queue(&mut self) -> GameResult<()> {
+        let Some((next_item, respond)) = self.queue.recv().await;
 
         let game_response = Arc::new(self.cache_or_request(next_item).await?);
         if let Some(response_channel) = respond {
@@ -349,7 +344,7 @@ impl GameQueueActor {
         // Don't care whether there are receivers
         let _ = self.broadcast.send(game_response);
 
-        Ok(true)
+        Ok(())
     }
 
     /// Either use a cached TTS line, or generate a new one based on the given `voice_line`.
@@ -367,12 +362,8 @@ impl GameQueueActor {
         }
 
         let voice_to_use = match &voice_line.person {
-            TtsVoice::ForceVoice(forced) => {
-                forced.clone()
-            }
-            TtsVoice::CharacterVoice(character) => {
-                self.data.map_character(character).await?
-            }
+            TtsVoice::ForceVoice(forced) => forced.clone(),
+            TtsVoice::CharacterVoice(character) => self.data.map_character(character).await?,
         };
 
         // TODO: Line emotion detection
@@ -405,14 +396,17 @@ impl GameQueueActor {
         for i in 0..3 {
             let response_gen = self.tts.tts_request(voice_line.model, request.clone()).await?;
             response = if let Some(post) = voice_line.post.as_ref() {
-                match self.postprocess(&voice_line, sample_path.clone(), post, response_gen).await {
+                match self
+                    .postprocess(&voice_line, sample_path.clone(), post, response_gen)
+                    .await
+                {
                     Ok(response) => Some(response),
                     Err(GameSessionError::IncorrectGeneration) => {
-                        tracing::trace!(attempt=i, "Failed to generate voice line, retrying");
+                        tracing::trace!(attempt = i, "Failed to generate voice line, retrying");
                         // Retry with a new generation
                         continue;
                     }
-                    Err(e) => return Err(e)
+                    Err(e) => return Err(e),
                 }
             } else {
                 Some(response_gen)
@@ -421,27 +415,34 @@ impl GameQueueActor {
             break;
         }
         let Some(response) = response else {
-            return Err(GameSessionError::IncorrectGeneration)
+            return Err(GameSessionError::IncorrectGeneration);
         };
 
         let out = self.transform_response(voice_to_use, voice_line, response).await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
         if self.generations_count > 20 {
+            self.generations_count = 0;
             self.data.save_cache().await?
         }
 
         Ok(out)
     }
-    
+
     /// Perform post-processing on the newly generated raw TTS files.
-    /// 
+    ///
     /// This includes but is not limited to, silence trimming, low/high-pass filters.
     #[tracing::instrument(skip_all)]
-    async fn postprocess(&mut self, voice_line: &VoiceLine, voice_sample: PathBuf, post_processing: &PostProcessing, response: BackendTtsResponse) -> Result<BackendTtsResponse, GameSessionError> {
+    async fn postprocess(
+        &mut self,
+        voice_line: &VoiceLine,
+        voice_sample: PathBuf,
+        post_processing: &PostProcessing,
+        response: BackendTtsResponse,
+    ) -> Result<BackendTtsResponse, GameSessionError> {
         let should_trim = post_processing.trim_silence;
         let should_normalise = post_processing.normalise;
-        
+
         let timer = std::time::Instant::now();
 
         let (new_audio, destination_path) = match response.result.clone() {
@@ -452,7 +453,7 @@ impl GameQueueActor {
                     tracing::trace!(?score, "Whisper TTS match");
                     // There will obviously be transcription errors, so we choose a relatively
                     if score < (percent as f32 / 100.0) {
-                        return Err(GameSessionError::IncorrectGeneration)
+                        return Err(GameSessionError::IncorrectGeneration);
                     }
                 }
 
@@ -467,16 +468,22 @@ impl GameQueueActor {
                         sample_data = super::postprocessing::trim_lead(sample_data, raw_audio_data.n_channels(), 0.01);
                     }
                     if should_normalise {
-                        super::postprocessing::loudness_normalise(sample_data, raw_audio_data.sample_rate() as u32, raw_audio_data.n_channels());
+                        super::postprocessing::loudness_normalise(
+                            sample_data,
+                            raw_audio_data.sample_rate() as u32,
+                            raw_audio_data.n_channels(),
+                        );
                     }
                     audio.samples = sample_data.to_vec();
-                    
+
                     Ok::<_, eyre::Error>((audio, temp_path))
-                }).await.context("Failed to join")??
+                })
+                .await
+                .context("Failed to join")??
             }
-            TtsResult::Stream => unimplemented!("Streams are not yet supported")
+            TtsResult::Stream => unimplemented!("Streams are not yet supported"),
         };
-       
+
         if let Some(rvc) = &post_processing.rvc {
             let req = BackendRvcRequest {
                 audio: new_audio,
@@ -499,7 +506,7 @@ impl GameQueueActor {
 
         let took = timer.elapsed();
         tracing::debug!(?took, "Finished post-processing");
-        
+
         Ok(BackendTtsResponse {
             gen_time: response.gen_time + took,
             result: TtsResult::File(destination_path),
@@ -528,7 +535,8 @@ impl GameQueueActor {
 
                 let voice_used = voice.name.clone();
 
-                let old_value = self.data
+                let old_value = self
+                    .data
                     .line_cache
                     .lock()
                     .await
@@ -560,12 +568,8 @@ impl GameSharedData {
     #[tracing::instrument(skip_all)]
     async fn try_cache_retrieve(&self, voice_line: &VoiceLine) -> eyre::Result<Option<TtsResponse>> {
         let voice_to_use = match &voice_line.person {
-            TtsVoice::ForceVoice(forced) => {
-                forced.clone()
-            }
-            TtsVoice::CharacterVoice(character) => {
-                self.map_character(character).await?
-            }
+            TtsVoice::ForceVoice(forced) => forced.clone(),
+            TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
         };
         tracing::trace!(?voice_to_use, "Will try to use voice for cache");
         // TODO: Debug race condition causing rare hanging after this line
@@ -684,9 +688,7 @@ impl GameSharedData {
 
     /// Serialize all variable state (such as character assignments) to disk.
     async fn save_state(&self) -> eyre::Result<()> {
-
-        let config_save = self.config.dirs.game_dir(&self.game_data.game_name)
-            .join(CONFIG_NAME);
+        let config_save = self.config.dirs.game_dir(&self.game_data.game_name).join(CONFIG_NAME);
         let writer = std::io::BufWriter::new(std::fs::File::create(config_save)?);
 
         Ok(serde_json::to_writer_pretty(writer, &self.game_data)?)
@@ -732,8 +734,7 @@ impl<'de> Deserialize<'de> for LineCache {
         D: Deserializer<'de>,
     {
         // Deserialize into a temporary HashMap<String, HashMap<String, String>>
-        let raw_map: HashMap<String, HashMap<String, String>> =
-            HashMap::deserialize(deserializer)?;
+        let raw_map: HashMap<String, HashMap<String, String>> = HashMap::deserialize(deserializer)?;
 
         // Convert back to HashMap<VoiceReference, HashMap<String, String>>
         let voice_to_line = raw_map
@@ -742,7 +743,9 @@ impl<'de> Deserialize<'de> for LineCache {
                 let (location, name) = if let Some(rest) = key.strip_prefix("global_") {
                     (VoiceDestination::Global, rest.to_string())
                 } else if let Some(rest) = key.strip_prefix("game_") {
-                    let (game_name, character) = rest.split_once("_").ok_or_else(|| D::Error::custom("No game identifier found"))?;
+                    let (game_name, character) = rest
+                        .split_once("_")
+                        .ok_or_else(|| D::Error::custom("No game identifier found"))?;
                     (VoiceDestination::Game(game_name.into()), character.to_string())
                 } else {
                     return Err(serde::de::Error::custom(format!("Invalid key format: {}", key)));
@@ -753,5 +756,55 @@ impl<'de> Deserialize<'de> for LineCache {
             .collect::<Result<HashMap<_, _>, D::Error>>()?;
 
         Ok(LineCache { voice_to_line })
+    }
+}
+
+struct OrderedReceiver<T> {
+    queue: Arc<Mutex<VecDeque<T>>>,
+    notify: tokio::sync::mpsc::Receiver<()>,
+}
+
+#[derive(Clone)]
+struct OrderedSender<T> {
+    queue: Arc<Mutex<VecDeque<T>>>,
+    notify: tokio::sync::mpsc::Sender<()>,
+}
+
+fn ordered_channel<T>() -> (OrderedSender<T>, OrderedReceiver<T>) {
+    let queue = Arc::new(Mutex::new(VecDeque::new()));
+    let notify = Arc::new(Notify::new());
+    // We use a channel to piggyback off their Drop handling.
+    let (send, recv) = tokio::sync::mpsc::channel(1);
+
+    (OrderedSender {
+        queue: queue.clone(),
+        notify: send,
+    }, OrderedReceiver {
+        queue,
+        notify: recv,
+    })
+}
+
+impl<T> OrderedSender<T> {
+    pub async fn change_queue(&self, closure: impl for<'a> FnOnce(&'a mut VecDeque<T>)) {
+        let mut q = self.queue.lock().await;
+        closure(&mut *q);
+        // Notify the queue worker that we have added new items
+        self.notify.try_send(());
+    }
+}
+
+impl<T> OrderedReceiver<T> {
+    /// Receive or await from the underlying queue.
+    pub async fn recv(&mut self) -> Option<T> {
+        let mut q = self.queue.lock().await;
+        if let Some(value) = q.pop_front() {
+            return Some(value)
+        }
+        drop(q);
+        let _ = self.notify.recv().await;
+
+        let mut q = self.queue.lock().await;
+        q.pop_front()
     }
 }
