@@ -50,7 +50,6 @@ impl GameSessionHandle {
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);
         // Small amount before we exert back-pressure
-        let (send_b, recv_b) = broadcast::channel(10);
         let (game_data, line_cache) = GameData::create_or_load_from_file(game_name, &config.dirs).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
         let (q_send, q_recv) = ordered_channel();
@@ -60,12 +59,10 @@ impl GameSessionHandle {
             config,
             voice_manager: voice_man.clone(),
             game_data,
-            b_recv: recv_b,
             line_cache,
         });
 
         let queue_actor = GameQueueActor {
-            broadcast: send_b,
             tts,
             rvc,
             data: shared_data.clone(),
@@ -98,11 +95,6 @@ impl GameSessionHandle {
     /// Check whether this session is still alive, or was somehow taken offline.
     pub fn is_alive(&self) -> bool {
         !self.game_tts.priority.is_closed()
-    }
-
-    /// Request a handle to the stream of [TtsResponse]s from the generation queue for this session.
-    pub async fn broadcast_handle(&self) -> eyre::Result<broadcast::Receiver<Arc<TtsResponse>>> {
-        Ok(self.game_tts.data.b_recv.resubscribe())
     }
 
     /// Force the character mapping to use the given voice.
@@ -139,8 +131,8 @@ impl GameSessionHandle {
 
     /// Request a single voice line with the highest priority.
     ///
-    /// If this future is dropped prematurely the request will still be handled, and the response will be sent on
-    /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
+    /// If this future is dropped prematurely the request will still be handled.
+    /// This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
         self.game_tts.request_tts(request).await
@@ -159,12 +151,12 @@ impl GameTts {
     /// These items will be prioritised over previous queue items
     pub async fn add_all_to_queue(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
         // First invalidate all lines which have a `force_generate` flag.
-        // self.data.invalidate_cache_lines(items.iter().filter(|v| v.force_generate).cloned()).await?;
+        self.data.invalidate_cache_lines(items.iter().filter(|v| v.force_generate).cloned().collect()).await?;
         // Reverse iterator to ensure the push_front will leave us with the correct order in the queue
         self.queue
             .change_queue(|queue| {
                 for line in items.into_iter().rev() {
-                    queue.retain(|v| v.0 != line && v.1.is_none());
+                    queue.retain(|v| v.0 != line || v.1.is_some());
                     queue.push_front((line, None));
                 }
             })
@@ -177,6 +169,9 @@ impl GameTts {
     /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
+        if request.force_generate {
+            self.data.invalidate_cache_line(&request).await?;
+        }
         // First check if the cache already contains the required data
         let out = if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
             Arc::new(tts_response)
@@ -192,27 +187,26 @@ impl GameTts {
         Ok(out)
     }
 
-    // pub async fn channel_tts(&self, request: VoiceLine, send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>) -> eyre::Result<()> {
-    //     let out = if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
-    //         Arc::new(tts_response)
-    //     } else {
-    //         // Otherwise send a priority request to our queue
-    //         let (snd, rcv) = tokio::sync::oneshot::channel();
-    //
-    //         self.priority.change_queue(|queue| queue.push_front((request, Some(snd)))).await?;
-    //
-    //         rcv.await?
-    //     };
-    //
-    //     Ok(out)
-    // }
+    #[tracing::instrument(skip(self))]
+    pub async fn request_tts_with_channel(&self, request: VoiceLine, send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>) -> eyre::Result<()> {
+        if request.force_generate {
+            self.data.invalidate_cache_line(&request).await?;
+        }
+        // First check if the cache already contains the required data
+         if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
+            let _ = send.send(Arc::new(tts_response));
+        } else {
+            // Otherwise send a priority request to our queue
+            self.priority.change_queue(move |queue| queue.push_front((request, Some(send)))).await?;
+        };
+
+        Ok(())
+    }
 }
 
 type SingleRequest = (VoiceLine, Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>);
 
 struct GameQueueActor {
-    broadcast: tokio::sync::broadcast::Sender<Arc<TtsResponse>>,
-
     tts: TtsBackend,
     rvc: RvcBackend,
     data: Arc<GameSharedData>,
@@ -228,7 +222,6 @@ struct GameSharedData {
     voice_manager: Arc<VoiceManager>,
     game_data: GameData,
     line_cache: Arc<Mutex<LineCache>>,
-    b_recv: broadcast::Receiver<Arc<TtsResponse>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -322,6 +315,10 @@ impl GameQueueActor {
                     tracing::warn!("Skipping line request after too many generation failure");
                     Ok(())
                 }
+                GameSessionError::Timeout(e) => {
+                    tracing::warn!("Skipping line request due to timeout");
+                    Ok(())
+                }
             },
             _ => Ok(())
         }
@@ -334,8 +331,6 @@ impl GameQueueActor {
             // If the consumer drops the other end we don't care
             let _ = response_channel.send(game_response.clone());
         }
-        // Don't care whether there are receivers
-        let _ = self.broadcast.send(game_response);
 
         Ok(())
     }
@@ -347,17 +342,20 @@ impl GameQueueActor {
         if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
             return Ok(response);
         }
+        tracing::info!("No cache available, requesting from TTS");
         // If we want to use RVC we'll try and warm it up before the TTS request to save time
         if let Some(post) = &voice_line.post {
             if let Some(rvc) = &post.rvc {
                 self.rvc.prepare_instance(rvc.high_quality).await?;
             }
         }
+        tracing::info!("Prepared RVC");
 
         let voice_to_use = match &voice_line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
             TtsVoice::CharacterVoice(character) => self.data.map_character(character).await?,
         };
+        tracing::info!("Found Voice");
 
         // TODO: Line emotion detection
         let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;
@@ -384,7 +382,7 @@ impl GameQueueActor {
             voice_reference: vec![sample],
             speed: None,
         };
-
+        tracing::info!("Going to request");
         let mut response = None;
         for i in 0..3 {
             let response_gen = self.tts.tts_request(voice_line.model, request.clone()).await?;
@@ -410,7 +408,7 @@ impl GameQueueActor {
         let Some(response) = response else {
             return Err(GameSessionError::IncorrectGeneration);
         };
-
+        tracing::info!("Transforming response");
         let out = self.transform_response(voice_to_use, voice_line, response).await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
@@ -449,7 +447,7 @@ impl GameQueueActor {
                         return Err(GameSessionError::IncorrectGeneration);
                     }
                 }
-
+                tracing::info!("Post process");
                 // Then we run our audio post-processing to clean it up for human ears.
                 tokio::task::spawn_blocking(move || {
                     let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
@@ -476,7 +474,7 @@ impl GameQueueActor {
             }
             TtsResult::Stream => unimplemented!("Streams are not yet supported"),
         };
-
+        tracing::info!("Post process RVC");
         if let Some(rvc) = &post_processing.rvc {
             let req = BackendRvcRequest {
                 audio: new_audio,
@@ -591,7 +589,7 @@ impl GameSharedData {
     }
 
     /// Remove all cached lines matching the given `items`.
-    async fn invalidate_cache_lines(&self, items: impl IntoIterator<Item=VoiceLine>) -> eyre::Result<()> {
+    async fn invalidate_cache_lines(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
         let mut cache = self.line_cache.lock().await;
 
         for item in items {
@@ -604,6 +602,21 @@ impl GameSharedData {
                 .or_default()
                 .remove(&item.line);
         }
+
+        Ok(())
+    }
+
+    async fn invalidate_cache_line(&self, line: &VoiceLine) -> eyre::Result<()> {
+        let mut cache = self.line_cache.lock().await;
+
+        let voice_to_use = match &line.person {
+            TtsVoice::ForceVoice(forced) => forced.clone(),
+            TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
+        };
+        cache.voice_to_line
+            .entry(voice_to_use)
+            .or_default()
+            .remove(&line.line);
 
         Ok(())
     }

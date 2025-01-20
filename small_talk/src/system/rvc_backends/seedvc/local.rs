@@ -9,6 +9,7 @@ use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
 };
+use crate::system::error::RvcError;
 use crate::system::rvc_backends::{BackendRvcRequest, BackendRvcResponse, RvcResult};
 use crate::system::rvc_backends::seedvc::api::SeedVcApiConfig;
 use crate::system::rvc_backends::seedvc::SeedRvc;
@@ -25,7 +26,7 @@ pub struct LocalSeedVcConfig {
 
 #[derive(Debug, Clone)]
 pub struct LocalSeedHandle {
-    pub send: tokio::sync::mpsc::Sender<SeedMessage>,
+    pub send: tokio::sync::mpsc::UnboundedSender<SeedMessage>,
 }
 
 #[derive(Debug)]
@@ -41,7 +42,7 @@ impl LocalSeedHandle {
     /// Create and start a new [LocalSeedVc] actor, returning the cloneable handle to the actor in the process.
     pub fn new(config: LocalSeedVcConfig) -> eyre::Result<Self> {
         // Small amount before we exert back-pressure
-        let (send, recv) = tokio::sync::mpsc::channel(10);
+        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
         let actor = LocalSeedVc {
             state: GcCell::new(config.timeout),
             config,
@@ -58,17 +59,17 @@ impl LocalSeedHandle {
     }
 
     pub async fn start_instance(&self) -> eyre::Result<()> {
-        Ok(self.send.send(SeedMessage::StartInstance).await?)
+        Ok(self.send.send(SeedMessage::StartInstance)?)
     }
 
     pub async fn stop_instance(&self) -> eyre::Result<()> {
-        Ok(self.send.send(SeedMessage::StopInstance).await?)
+        Ok(self.send.send(SeedMessage::StopInstance)?)
     }
 
     /// Send a RVC request to the SeedVc instance.
     pub async fn rvc_request(&self, request: BackendRvcRequest) -> eyre::Result<BackendRvcResponse> {
         let (send, recv) = tokio::sync::oneshot::channel();
-        self.send.send(SeedMessage::RvcRequest(request, send)).await?;
+        self.send.send(SeedMessage::RvcRequest(request, send))?;
 
         Ok(recv.await?)
     }
@@ -77,7 +78,7 @@ impl LocalSeedHandle {
 struct LocalSeedVc {
     config: LocalSeedVcConfig,
     state: GcCell<TemporaryState>,
-    recv: tokio::sync::mpsc::Receiver<SeedMessage>,
+    recv: tokio::sync::mpsc::UnboundedReceiver<SeedMessage>,
 }
 
 struct TemporaryState {
@@ -91,14 +92,23 @@ impl LocalSeedVc {
     /// Start the actor, this future should be `tokio::spawn`ed.
     ///
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
-    pub async fn run(mut self) -> eyre::Result<()> {
+    #[tracing::instrument(skip(self))]
+    pub async fn run(mut self) -> Result<(), RvcError> {
         loop {
             tokio::select! {
                 msg = self.recv.recv() => {
                     // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
                     // on our timeout
                     match msg {
-                        Some(msg) => self.handle_message(msg).await?,
+                        Some(msg) => match self.handle_message(msg).await {
+                            Ok(_) => {}
+                            Err(RvcError::Timeout(_)) => {
+                                tracing::warn!("SeedVc timed out. Assuming failed state, restarting");
+                                // Something went wrong in our underlying state
+                                self.state.kill_state().await?;
+                            }
+                            e => return e
+                        },
                         None => {
                             tracing::trace!("Stopping LocalSeedVc actor as channel was closed");
                             break
@@ -119,7 +129,7 @@ impl LocalSeedVc {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_message(&mut self, message: SeedMessage) -> eyre::Result<()> {
+    async fn handle_message(&mut self, message: SeedMessage) -> Result<(), RvcError> {
         match message {
             SeedMessage::StartInstance => {
                 self.state.get_state(&self.config).await?;
@@ -131,7 +141,7 @@ impl LocalSeedVc {
                 let state = self.state.get_state(&self.config).await?;
 
                 let now = std::time::Instant::now();
-                let rvc_response = state.rvc.api.rvc(request).await?;
+                let rvc_response = tokio::time::timeout(Duration::from_secs(40), state.rvc.api.rvc(request)).await??;
                 let took = now.elapsed();
 
                 let _ = response.send(BackendRvcResponse {

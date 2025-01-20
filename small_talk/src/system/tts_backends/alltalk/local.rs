@@ -8,7 +8,6 @@ use std::time::Duration;
 use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
-    sync,
 };
 use crate::system::timeout::{DroppableState, GcCell};
 use crate::system::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
@@ -22,7 +21,7 @@ pub struct LocalAllTalkConfig {
 
 #[derive(Debug, Clone)]
 pub struct LocalAllTalkHandle {
-    pub send: tokio::sync::mpsc::Sender<AllTalkMessage>,
+    pub send: tokio::sync::mpsc::UnboundedSender<AllTalkMessage>,
 }
 
 #[derive(Debug)]
@@ -37,8 +36,8 @@ pub enum AllTalkMessage {
 impl LocalAllTalkHandle {
     /// Create and start a new [LocalAllTalk] actor, returning the cloneable handle to the actor in the process.
     pub fn new(config: LocalAllTalkConfig) -> eyre::Result<Self> {
-        // Small amount before we exert back-pressure
-        let (send, recv) = sync::mpsc::channel(10);
+        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
+
         let actor = LocalAllTalk {
             state: GcCell::new(config.timeout),
             config,
@@ -57,7 +56,7 @@ impl LocalAllTalkHandle {
     /// Send a TTS request to the local AllTalk instance
     pub async fn submit_tts_request(&self, request: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
         let (send, recv) = tokio::sync::oneshot::channel();
-        self.send.send(AllTalkMessage::TtsRequest(request, send)).await?;
+        self.send.send(AllTalkMessage::TtsRequest(request, send))?;
 
         Ok(recv.await?)
     }
@@ -66,7 +65,7 @@ impl LocalAllTalkHandle {
 struct LocalAllTalk {
     config: LocalAllTalkConfig,
     state: GcCell<TemporaryState>,
-    recv: sync::mpsc::Receiver<AllTalkMessage>,
+    recv: tokio::sync::mpsc::UnboundedReceiver<AllTalkMessage>,
 }
 
 struct TemporaryState {
@@ -79,6 +78,7 @@ impl LocalAllTalk {
     /// Start the actor, this future should be `tokio::spawn`ed.
     /// 
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
+    #[tracing::instrument(skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
             tokio::select! {

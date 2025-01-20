@@ -29,7 +29,7 @@ strsim = "0.11.1"
 bytemuck = "1.21.0"
 
 
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "tracing"] }
 futures = { version = "0.3" }
 
 axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"] }

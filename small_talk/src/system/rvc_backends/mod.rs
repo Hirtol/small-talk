@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::time::Duration;
+use crate::system::error::{RvcError};
 use crate::system::postprocessing::AudioData;
 use crate::system::rvc_backends::seedvc::local::LocalSeedHandle;
 
@@ -32,11 +33,11 @@ impl RvcBackend {
     ///
     /// If `high_quality` was set the request will take longer, but it will result in a better quality result.
     #[tracing::instrument(skip(self))]
-    pub async fn rvc_request(&self, req: BackendRvcRequest, high_quality: bool) -> eyre::Result<BackendRvcResponse> {
+    pub async fn rvc_request(&self, req: BackendRvcRequest, high_quality: bool) -> Result<BackendRvcResponse, RvcError> {
         if high_quality {
-            self.seed_vc_hq.rvc_request(req).await
+            Ok(tokio::time::timeout(Duration::from_secs(40), self.seed_vc_hq.rvc_request(req)).await??)
         } else {
-            self.seed_vc_hq.rvc_request(req).await
+            Ok(tokio::time::timeout(Duration::from_secs(40), self.seed_vc.rvc_request(req)).await??)
         }
     }
 }
