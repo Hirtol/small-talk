@@ -61,8 +61,3 @@ pub enum RvcResult {
     /// TODO, maybe
     Stream
 }
-
-
-pub trait DroppableState {
-    async fn ready(&self) -> eyre::Result<bool>;
-}

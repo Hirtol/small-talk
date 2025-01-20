@@ -8,11 +8,11 @@ use std::time::Duration;
 use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
-    sync,
 };
 use crate::system::rvc_backends::{BackendRvcRequest, BackendRvcResponse, RvcResult};
 use crate::system::rvc_backends::seedvc::api::SeedVcApiConfig;
 use crate::system::rvc_backends::seedvc::SeedRvc;
+use crate::system::timeout::{DroppableState, GcCell};
 use crate::system::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
 
 #[derive(Debug, Clone)]
@@ -41,10 +41,10 @@ impl LocalSeedHandle {
     /// Create and start a new [LocalSeedVc] actor, returning the cloneable handle to the actor in the process.
     pub fn new(config: LocalSeedVcConfig) -> eyre::Result<Self> {
         // Small amount before we exert back-pressure
-        let (send, recv) = sync::mpsc::channel(10);
+        let (send, recv) = tokio::sync::mpsc::channel(10);
         let actor = LocalSeedVc {
+            state: GcCell::new(config.timeout),
             config,
-            state: None,
             recv,
         };
 
@@ -76,8 +76,8 @@ impl LocalSeedHandle {
 
 struct LocalSeedVc {
     config: LocalSeedVcConfig,
-    state: Option<TemporaryState>,
-    recv: sync::mpsc::Receiver<SeedMessage>,
+    state: GcCell<TemporaryState>,
+    recv: tokio::sync::mpsc::Receiver<SeedMessage>,
 }
 
 struct TemporaryState {
@@ -93,31 +93,25 @@ impl LocalSeedVc {
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
-            let instance_last = self.state.as_ref().map(|v| v.last_access);
-            // If we have state we need to try to drop it after a while
-            if let Some(last_access) = instance_last {
-                let timeout = last_access + self.config.timeout;
-
-                tokio::select! {
-                    Some(msg) = self.recv.recv() => {
-                        self.handle_message(msg).await?;
-                    },
-                    _ = tokio::time::sleep_until(timeout.into()) => {
-                        if self.state.as_ref().map(|v| v.last_access < timeout).unwrap_or_default() {
-                            tracing::debug!("Timeout expired, dropping local SeedVc state");
-                            // Drop the state, killing the sub-process
-                            // Safe to do as we know that it won't be generating for us since we have exclusive access.
-                            self.kill_state().await?;
-                        }
+            tokio::select! {
+                msg = self.recv.recv() => {
+                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
+                    // on our timeout
+                    match msg {
+                        Some(msg) => self.handle_message(msg).await?,
+                        None => {
+                            tracing::trace!("Stopping LocalSeedVc actor as channel was closed");
+                            break
+                        },
                     }
-                    else => break,
+                },
+                _ = self.state.timeout_future() => {
+                    tracing::debug!("Timeout expired, dropping local SeedVc state");
+                    // Drop the state, killing the sub-process
+                    // Safe to do as we know that it won't be generating for us since we have exclusive access.
+                    self.state.kill_state().await?
                 }
-            } else {
-                let Some(msg) = self.recv.recv().await else {
-                    tracing::trace!("Stopping LocalSeedVc actor as channel was closed");
-                    break;
-                };
-                self.handle_message(msg).await?;
+                else => break,
             }
         }
 
@@ -128,13 +122,13 @@ impl LocalSeedVc {
     async fn handle_message(&mut self, message: SeedMessage) -> eyre::Result<()> {
         match message {
             SeedMessage::StartInstance => {
-                self.verify_state().await?;
+                self.state.get_state(&self.config).await?;
             }
             SeedMessage::StopInstance => {
-                self.kill_state().await?;
+                self.state.kill_state().await?;
             }
             SeedMessage::RvcRequest(request, response) => {
-                let state = self.verify_state().await?;
+                let state = self.state.get_state(&self.config).await?;
 
                 let now = std::time::Instant::now();
                 let rvc_response = state.rvc.api.rvc(request).await?;
@@ -150,116 +144,68 @@ impl LocalSeedVc {
         }
         Ok(())
     }
+}
 
-    /// Ensure a running SeedVc instance exists.
-    async fn verify_state(&mut self) -> eyre::Result<&TemporaryState> {
-        // Borrow checker prevents us from doing this nicely...
-        if self.state.is_none() {
-            self.initialise_state().await
-        } else {
-            self.state.as_ref().context("Impossible")
+impl DroppableState for TemporaryState {
+    type Context = LocalSeedVcConfig;
+
+    async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
+        #[tracing::instrument]
+        async fn start_seedvc(path: &Path, high_quality: bool) -> eyre::Result<Box<dyn TokioChildWrapper>> {
+            tracing::debug!("Attempting to start SeedVc process");
+            let seed_env = path.join(".venv").join("Scripts");
+            let python_exe = seed_env.join("python.exe");
+            let log_file = std::fs::File::create(path.join("small_talk.log"))?;
+
+            let mut cmd = Command::new(python_exe);
+            cmd.envs(std::env::vars());
+            cmd.env("PATH", seed_env);
+            cmd.args(["seed_vc_api.py", "--low-vram", "False"])
+                .kill_on_drop(true)
+                .current_dir(path)
+                .stdout(log_file)
+                .stderr(Stdio::piped());
+
+            if high_quality {
+                cmd.args(["--diffusion-steps", "20", "--f0-condition", "True", "--inference-cfg-rate", "0.7"]);
+            } else {
+                // A few extra steps for the lower-quality model to make up for the difference
+                cmd.args(["--diffusion-steps", "25", "--inference-cfg-rate", "0.7"]);
+            }
+
+            let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
+            wrapped.wrap(process_wrap::tokio::KillOnDrop);
+
+            #[cfg(unix)]
+            {
+                wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+            }
+            #[cfg(windows)]
+            {
+                wrapped.wrap(process_wrap::tokio::JobObject);
+            }
+
+            match wrapped.spawn() {
+                Ok(child) => Ok(child),
+                Err(e) => {
+                    eyre::bail!("Failed to execute batch file: {}", e);
+                }
+            }
         }
-    }
 
-    /// Kill the current SeedVc instance.
-    async fn kill_state(&mut self) -> eyre::Result<()> {
-        let Some(mut val) = self.state.take() else {
-            return Ok(());
-        };
-        let kill_future = Box::into_pin(val.process.kill());
-        kill_future.await?;
-        Ok(())
-    }
+        let child = start_seedvc(&context.instance_path, context.high_quality).await?;
+        let api = SeedRvc::new(context.api.clone()).await?;
 
-    /// Force create and replace the current state by creating a new SeedVc instance.
-    #[tracing::instrument(skip(self))]
-    async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
-        let child = Self::start_seedvc(&self.config.instance_path, self.config.high_quality).await?;
-        let api = SeedRvc::new(self.config.api.clone()).await?;
-
-        Ok(self.state.insert(TemporaryState {
+        Ok(TemporaryState {
             rvc: api,
             process: child,
             last_access: std::time::Instant::now(),
-        }))
+        })
     }
 
-    /// Start the AllTalk instance located in `path`.
-    ///
-    /// Note that this spawns a sub-process.
-    #[tracing::instrument]
-    async fn start_seedvc(path: &Path, high_quality: bool) -> eyre::Result<Box<dyn TokioChildWrapper>> {
-        tracing::debug!("Attempting to start SeedVc process");
-        let seed_env = path.join(".venv").join("Scripts");
-        let python_exe = seed_env.join("python.exe");
-        let log_file = std::fs::File::create(path.join("small_talk.log"))?;
-
-        let mut cmd = Command::new(python_exe);
-        cmd.envs(std::env::vars());
-        cmd.env("PATH", seed_env);
-        cmd.args(["seed_vc_api.py"])
-            .kill_on_drop(true)
-            .current_dir(path)
-            .stdout(log_file)
-            .stderr(Stdio::piped());
-
-        if high_quality {
-            cmd.args(["--diffusion-steps", "20", "--f0-condition", "True", "--inference-cfg-rate", "0.7"]);
-        } else {
-            // A few extra steps for the lower-quality model to make up for the difference
-            cmd.args(["--diffusion-steps", "25", "--inference-cfg-rate", "0.7"]);
-        }
-
-        let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
-        wrapped.wrap(process_wrap::tokio::KillOnDrop);
-
-        #[cfg(unix)]
-        {
-            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
-        }
-        #[cfg(windows)]
-        {
-            wrapped.wrap(process_wrap::tokio::JobObject);
-        }
-
-        match wrapped.spawn() {
-            Ok(child) => Ok(child),
-            Err(e) => {
-                eyre::bail!("Failed to execute batch file: {}", e);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::process::Stdio;
-    use std::time::Duration;
-    use process_wrap::tokio::TokioChildWrapper;
-    use tokio::io::AsyncWriteExt;
-    use tokio::process::Command;
-    use crate::system::rvc_backends::seedvc::api::SeedVcApiConfig;
-    use crate::system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig, SeedMessage};
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    pub async fn basic_test() {
-        let cfg = LocalSeedVcConfig {
-            instance_path: r"G:\TTS\seed-vc\".into(),
-            timeout: Duration::from_secs(2),
-            api: SeedVcApiConfig {
-                address: "http://localhost:9999".try_into().unwrap()
-            }
-        };
-
-        let handle = LocalSeedHandle::new(cfg).unwrap();
-
-        handle.send.send(SeedMessage::StartInstance).await.unwrap();
-
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        handle.send.send(SeedMessage::StopInstance).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        drop(handle)
+    async fn on_kill(&mut self) -> eyre::Result<()> {
+        let kill_future = Box::into_pin(self.process.kill());
+        kill_future.await?;
+        Ok(())
     }
 }

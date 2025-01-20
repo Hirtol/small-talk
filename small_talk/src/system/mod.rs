@@ -21,6 +21,7 @@ pub mod voice_manager;
 pub mod utils;
 pub mod playback;
 pub mod config;
+pub mod timeout;
 mod postprocessing;
 mod error;
 

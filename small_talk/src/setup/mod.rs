@@ -1,5 +1,5 @@
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use axum::error_handling::HandleErrorLayer;
 use axum::http::{header, HeaderValue, StatusCode};
@@ -49,9 +49,8 @@ impl Application {
             api: config.f5_tts.alltalk_cfg.clone(),
         };
         let f5 = LocalAllTalkHandle::new(all_talk_cfg)?;
-        let cpu_threads = std::thread::available_parallelism()?.get() / 2;
-        let whisper = WhisperTranscribe::new(&config.dirs.whisper_model, cpu_threads as u16)?;
-        let tts_backend = TtsBackend::new(xtts, f5, whisper);
+
+        let tts_backend = TtsBackend::new(xtts, f5, config.dirs.whisper_model.clone());
 
         let mut seedvc_cfg = LocalSeedVcConfig {
             instance_path: config.seed_vc.local_path.clone(),

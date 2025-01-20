@@ -1,10 +1,12 @@
+use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use small_talk_ml::stt::WhisperTranscribe;
 use crate::system::tts_backends::alltalk::local::LocalAllTalkHandle;
 use crate::system::{TtsModel};
+use crate::system::timeout::DroppableState;
 use crate::system::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
@@ -14,15 +16,17 @@ pub mod alltalk;
 pub struct TtsBackend {
     pub xtts: LocalAllTalkHandle,
     pub e2: LocalAllTalkHandle,
-    pub whisper: Arc<Mutex<WhisperTranscribe>>,
+    whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
+    whisper_path: PathBuf,
 }
 
 impl TtsBackend {
-    pub fn new(xtts_all_talk: LocalAllTalkHandle, f5_all_talk: LocalAllTalkHandle, whisper_transcribe: WhisperTranscribe) -> Self {
+    pub fn new(xtts_all_talk: LocalAllTalkHandle, f5_all_talk: LocalAllTalkHandle, whisper_path: PathBuf) -> Self {
         Self {
             xtts: xtts_all_talk,
             e2: f5_all_talk,
-            whisper: Arc::new(Mutex::new(whisper_transcribe)),
+            whisper: Arc::new(Mutex::new(None)),
+            whisper_path,
         }
     }
 
@@ -48,11 +52,21 @@ impl TtsBackend {
     pub async fn verify_prompt(&self, wav_file: impl Into<PathBuf>, original_prompt: &str) -> eyre::Result<f32> {
         let whisp_clone = self.whisper.clone();
         let wav_file = wav_file.into();
+        let whisp_path = self.whisper_path.clone();
 
         let output = tokio::task::spawn_blocking(move || {
             let mut whisp = whisp_clone.blocking_lock();
 
-            whisp.transcribe_file(wav_file)
+            match whisp.deref_mut() {
+                None => {
+                    let cpu_threads = std::thread::available_parallelism()?.get() / 2;
+                    let mut model = WhisperTranscribe::new(whisp_path, cpu_threads as u16)?;
+                    let output = model.transcribe_file(wav_file);
+                    *whisp = Some(model);
+                    output
+                }
+                Some(model) => model.transcribe_file(wav_file)
+            }
         }).await??;
         // Can cause problems if we don't remove these for short quotes.
         let original_without_quotes = original_prompt.trim_start_matches('"').trim_end_matches('"');

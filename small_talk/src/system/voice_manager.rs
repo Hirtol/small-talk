@@ -191,7 +191,7 @@ impl FsVoiceSample {
     /// as the reference.
     /// 
     /// Both directories are expected to be on the same filesystem.
-    pub fn link_to_name(&self, dir: PathBuf, name: &str) -> eyre::Result<FsVoiceSample> {
+    pub fn link_to_name(&self, dir: PathBuf, name: &str) -> eyre::Result<LinkedFsVoiceSample> {
         let sample_ext = self.sample.extension();
         let target_sample = dir.join(name).with_extension(sample_ext.unwrap_or("wav".as_ref()));
         std::fs::hard_link(&self.sample, &target_sample)?;
@@ -206,12 +206,11 @@ impl FsVoiceSample {
             None
         };
         
-        Ok(FsVoiceSample {
+        Ok(LinkedFsVoiceSample(FsVoiceSample {
             emotion: self.emotion,
             spoken_text: target_spoken,
             sample: target_sample,
-        })
-        
+        }))
     }
     
     /// Read the sample's data
@@ -236,6 +235,28 @@ impl FsVoiceSample {
         } else {
             None
         }
+    }
+}
+
+/// A hard-linked [FsVoiceSample] which will be deleted when dropped.
+#[derive(Debug)]
+pub struct LinkedFsVoiceSample(FsVoiceSample);
+
+impl Drop for LinkedFsVoiceSample {
+    fn drop(&mut self) {
+        // We ignore the errors here, not great, but it's a best-effort cleanup.
+        let _ = std::fs::remove_file(&self.0.sample);
+        if let Some(spoken) = &self.0.spoken_text {
+            let _ = std::fs::remove_file(spoken);
+        }
+    }
+}
+
+impl std::ops::Deref for LinkedFsVoiceSample {
+    type Target = FsVoiceSample;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

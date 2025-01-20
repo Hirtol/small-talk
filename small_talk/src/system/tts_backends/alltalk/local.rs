@@ -1,5 +1,5 @@
 use crate::system::tts_backends::alltalk::{api::AllTalkApi, AllTalkConfig, AllTalkTTS};
-use eyre::ContextCompat;
+use eyre::{ContextCompat, OptionExt};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
@@ -10,6 +10,7 @@ use tokio::{
     process::{Child, Command},
     sync,
 };
+use crate::system::timeout::{DroppableState, GcCell};
 use crate::system::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
 
 #[derive(Debug, Clone)]
@@ -39,8 +40,8 @@ impl LocalAllTalkHandle {
         // Small amount before we exert back-pressure
         let (send, recv) = sync::mpsc::channel(10);
         let actor = LocalAllTalk {
+            state: GcCell::new(config.timeout),
             config,
-            state: None,
             recv,
         };
 
@@ -64,14 +65,13 @@ impl LocalAllTalkHandle {
 
 struct LocalAllTalk {
     config: LocalAllTalkConfig,
-    state: Option<TemporaryState>,
+    state: GcCell<TemporaryState>,
     recv: sync::mpsc::Receiver<AllTalkMessage>,
 }
 
 struct TemporaryState {
     tts: AllTalkTTS,
     process: Box<dyn TokioChildWrapper>,
-    last_access: std::time::Instant,
 }
 
 impl LocalAllTalk {
@@ -81,31 +81,25 @@ impl LocalAllTalk {
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
     pub async fn run(mut self) -> eyre::Result<()> {
         loop {
-            let instance_last = self.state.as_ref().map(|v| v.last_access);
-            // If we have state we need to try to drop it after a while
-            if let Some(last_access) = instance_last {
-                let timeout = last_access + self.config.timeout;
-
-                tokio::select! {
-                    Some(msg) = self.recv.recv() => {
-                        self.handle_message(msg).await?;
-                    },
-                    _ = tokio::time::sleep_until(timeout.into()) => {
-                        if self.state.as_ref().map(|v| v.last_access < timeout).unwrap_or_default() {
-                            tracing::debug!("Timeout expired, dropping local AllTalk state");
-                            // Drop the state, killing the sub-process
-                            // Safe to do as we know that it won't be generating for us since we have exclusive access.
-                            self.kill_state().await?;
-                        }
+            tokio::select! {
+                msg = self.recv.recv() => {
+                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
+                    // on our timeout
+                    match msg {
+                        Some(msg) => self.handle_message(msg).await?,
+                        None => {
+                            tracing::trace!("Stopping LocalAllTalk actor as channel was closed");
+                            break
+                        },
                     }
-                    else => break,
+                },
+                _ = self.state.timeout_future() => {
+                    tracing::debug!("Timeout expired, dropping local AllTalk state");
+                    // Drop the state, killing the sub-process
+                    // Safe to do as we know that it won't be generating for us since we have exclusive access.
+                    self.state.kill_state().await?
                 }
-            } else {
-                let Some(msg) = self.recv.recv().await else {
-                    tracing::trace!("Stopping LocalAllTalk actor as channel was closed");
-                    break;
-                };
-                self.handle_message(msg).await?;
+                else => break,
             }
         }
 
@@ -116,14 +110,14 @@ impl LocalAllTalk {
     async fn handle_message(&mut self, message: AllTalkMessage) -> eyre::Result<()> {
         match message {
             AllTalkMessage::StartInstance => {
-                self.verify_state().await?;
+                self.state.get_state(&self.config).await?;
             }
             AllTalkMessage::StopInstance => {
-                self.kill_state().await?;
+                self.state.kill_state().await?;
             }
             AllTalkMessage::TtsRequest(request, response) => {
                 let voice_path = self.voices_path();
-                let state = self.verify_state().await?;
+                let state = self.state.get_state(&self.config).await?;
                 let output_file = crate::system::utils::random_file_name(24, None);
                 // We have to move (hardlink) the sample to the AllTalk voices dir
                 let sample_name = crate::system::utils::random_file_name(24, None);
@@ -159,12 +153,6 @@ impl LocalAllTalk {
                 let took = now.elapsed();
                 let gen_path = PathBuf::from(tts_response.output_file_path);
                 
-                // Clear up the sample which we linked above.
-                tokio::fs::remove_file(input_file.sample).await?;
-                if let Some(text) = input_file.spoken_text {
-                    tokio::fs::remove_file(text).await?;
-                }
-                
                 let _ = response.send(BackendTtsResponse {
                     gen_time: took,
                     result: TtsResult::File(gen_path),
@@ -179,81 +167,69 @@ impl LocalAllTalk {
     fn voices_path(&self) -> PathBuf {
         self.config.instance_path.join("voices")
     }
+}
 
-    /// Ensure a running AllTalk instance exists.
-    async fn verify_state(&mut self) -> eyre::Result<&TemporaryState> {
-        // Borrow checker prevents us from doing this nicely...
-        if self.state.is_none() {
-            self.initialise_state().await
-        } else {
-            self.state.as_ref().context("Impossible")
-        }
-    }
-    
-    /// Kill the current AllTalk instance.
-    async fn kill_state(&mut self) -> eyre::Result<()> {
-        let Some(mut val) = self.state.take() else {
-            return Ok(());
-        };
-        let kill_future = Box::into_pin(val.process.kill());
-        kill_future.await?;
-        Ok(())
-    }
+impl DroppableState for TemporaryState {
+    type Context = LocalAllTalkConfig;
 
-    /// Force create and replace the current state by creating a new AllTalk instance.
-    #[tracing::instrument(skip(self))]
-    async fn initialise_state(&mut self) -> eyre::Result<&TemporaryState> {
-        let child = Self::start_alltalk(&self.config.instance_path).await?;
-        let api = AllTalkTTS::new(self.config.api.clone()).await?;
+    #[tracing::instrument(skip(context))]
+    async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
+        /// Start the AllTalk instance located in `path`.
+        ///
+        /// Note that this spawns a sub-process.
+        #[tracing::instrument]
+        async fn start_alltalk(path: &Path) -> eyre::Result<Box<dyn TokioChildWrapper>> {
+            tracing::debug!("Attempting to start AllTalk process");
+            let alltalk_env = path.join("alltalk_environment");
+            let conda_env = alltalk_env.join("conda");
+            let env_env = alltalk_env.join("env");
+            let python_exe = env_env.join("python.exe");
+            let log_file = std::fs::File::create(path.join("small_talk.log"))?;
+            let err_log_file = std::fs::File::create(path.join("small_talk_err.log"))?;
 
-        Ok(self.state.insert(TemporaryState {
-            tts: api,
-            process: child,
-            last_access: std::time::Instant::now(),
-        }))
-    }
+            let mut cmd = Command::new(python_exe);
+            cmd.envs(std::env::vars());
+            cmd.env("CONDA_ROOT_PREFIX", conda_env);
+            cmd.env("INSTALL_ENV_DIR", env_env);
+            cmd.args(["script.py"])
+                .kill_on_drop(true)
+                .current_dir(path)
+                .stdout(log_file)
+                .stderr(err_log_file);
 
-    /// Start the AllTalk instance located in `path`.
-    ///
-    /// Note that this spawns a sub-process.
-    #[tracing::instrument]
-    async fn start_alltalk(path: &Path) -> eyre::Result<Box<dyn TokioChildWrapper>> {
-        tracing::debug!("Attempting to start AllTalk process");
-        let alltalk_env = path.join("alltalk_environment");
-        let conda_env = alltalk_env.join("conda");
-        let env_env = alltalk_env.join("env");
-        let python_exe = env_env.join("python.exe");
-        let log_file = std::fs::File::create(path.join("small_talk.log"))?;
-        let err_log_file = std::fs::File::create(path.join("small_talk_err.log"))?;
+            let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
+            wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
-        let mut cmd = Command::new(python_exe);
-        cmd.envs(std::env::vars());
-        cmd.env("CONDA_ROOT_PREFIX", conda_env);
-        cmd.env("INSTALL_ENV_DIR", env_env);
-        cmd.args(["script.py"])
-            .kill_on_drop(true)
-            .current_dir(path)
-            .stdout(log_file)
-            .stderr(err_log_file);
+            #[cfg(unix)]
+            {
+                wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+            }
+            #[cfg(windows)]
+            {
+                wrapped.wrap(process_wrap::tokio::JobObject);
+            }
 
-        let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
-        wrapped.wrap(process_wrap::tokio::KillOnDrop);
-
-        #[cfg(unix)]
-        {
-            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
-        }
-        #[cfg(windows)]
-        {
-            wrapped.wrap(process_wrap::tokio::JobObject);
-        }
-
-        match wrapped.spawn() {
-            Ok(child) => Ok(child),
-            Err(e) => {
-                eyre::bail!("Failed to execute batch file: {}", e);
+            match wrapped.spawn() {
+                Ok(child) => Ok(child),
+                Err(e) => {
+                    eyre::bail!("Failed to execute batch file: {}", e);
+                }
             }
         }
+        let child = start_alltalk(&context.instance_path).await?;
+        let api = AllTalkTTS::new(context.api.clone()).await?;
+
+        Ok(Self {
+            tts: api,
+            process: child,
+
+        })
+    }
+
+    async fn on_kill(&mut self) -> eyre::Result<()> {
+        let kill_future = Box::into_pin(self.process.kill());
+        kill_future.await?;
+        Ok(())
     }
 }
 

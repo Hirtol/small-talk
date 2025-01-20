@@ -27,7 +27,7 @@ impl From<ApiTtsRequest> for VoiceLine {
             // For now assume these defaults.
             // TODO make these configurable.
             post: Some(PostProcessing {
-                verify_percentage: Some(90),
+                verify_percentage: None,
                 trim_silence: true,
                 normalise: true,
                 rvc: Some(RvcOptions {
