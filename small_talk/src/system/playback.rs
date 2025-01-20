@@ -1,7 +1,12 @@
-use crate::system::{session::GameSessionMessage, voice_manager::VoiceManager, TtsModel, TtsResponse, VoiceLine};
+use crate::system::{voice_manager::VoiceManager, TtsModel, TtsResponse, VoiceLine};
 use rodio::{Decoder, OutputStream, Sink};
 use std::{collections::VecDeque, fs::File, io::BufReader, sync::Arc, time::Duration};
+use std::sync::Weak;
+use eyre::ContextCompat;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use tokio::sync::broadcast;
+use crate::system::session::{GameSessionHandle, GameTts};
 
 #[derive(Clone)]
 pub struct PlaybackEngineHandle {
@@ -10,7 +15,7 @@ pub struct PlaybackEngineHandle {
 
 impl PlaybackEngineHandle {
     /// Start a new playback engine
-    pub async fn new(session: tokio::sync::mpsc::Sender<GameSessionMessage>) -> eyre::Result<PlaybackEngineHandle> {
+    pub async fn new(session: Weak<GameTts>) -> eyre::Result<PlaybackEngineHandle> {
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let (stream, stream_handle) = OutputStream::try_default().expect("No output device for audio available");
 
@@ -22,6 +27,7 @@ impl PlaybackEngineHandle {
             current_request: None,
             current_volume: 1.0,
             current_queue: Default::default(),
+            cur_req: None,
         };
         let rt = tokio::runtime::Handle::current();
         // We do blocking IO in the actor, so spawn it on the thread pool.
@@ -73,13 +79,14 @@ pub enum PlaybackMessage {
 
 pub struct PlaybackEngine {
     _output_device: SendCpalStream,
-    session_handle: tokio::sync::mpsc::Sender<GameSessionMessage>,
+    session_handle: Weak<GameTts>,
     
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
     
     audio_sink: Sink,
     current_volume: f32,
     current_queue: VecDeque<PlaybackVoiceLine>,
+    cur_req: Option<BoxFuture<'static, eyre::Result<Arc<TtsResponse>>>>,
     current_request: Option<tokio::sync::oneshot::Receiver<Arc<TtsResponse>>>,
 }
 
@@ -90,7 +97,7 @@ impl PlaybackEngine {
         // TODO: Potentially switch to the `kira` crate from the Bevy ecosystem for Reverb/callbacks
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
-            let one_shot_future: futures::future::OptionFuture<_> = self.current_request.as_mut().into();
+            let one_shot_future: futures::future::OptionFuture<_> = self.cur_req.as_mut().into();
             tokio::select! {
                 msg = self.recv.recv() => {
                     let Some(msg) = msg else {
@@ -117,20 +124,21 @@ impl PlaybackEngine {
     async fn handle_message(&mut self, message: PlaybackMessage) -> eyre::Result<()> {
         match message {
             PlaybackMessage::Stop => {
-                self.current_request = None;
+                self.cur_req = None;
                 self.current_queue.clear();
                 self.audio_sink.clear();
             }
             PlaybackMessage::Start(lines) => {
                 // If we start a new line set we first clear out the old one
                 self.audio_sink.clear();
-                self.current_request = None;
+                self.cur_req = None;
                 self.current_queue = lines;
+                let session = self.session()?;
                 // Add the items to a generation queue so that playbacks after the current one are quick
                 if !self.current_queue.is_empty() {
-                    let queue_lines = self.current_queue.iter().map(|l| l.line.clone()).collect();
-                    self.session_handle
-                        .send(GameSessionMessage::AddToQueue(queue_lines))
+                    let queue_lines = self.current_queue.iter().map(|l| l.line.clone());
+                    session
+                        .add_all_to_queue(queue_lines.collect())
                         .await?;
                     // As we're preemptively sending this off we should ensure we don't request _another_ regeneration when actually playing this line.
                     self.current_queue.iter_mut().for_each(|l| l.line.force_generate = false);
@@ -139,7 +147,7 @@ impl PlaybackEngine {
                 // Actually request our first voice line
                 // TODO: Currently if our TTS engine is currently handling the request with `force_generate` we will still play the old cached line.
                 if let Some(request) = self.current_queue.pop_front() {
-                    self.start_playback_request(request).await?;
+                    self.start_playback_request(request, session).await?;
                 }
             }
         }
@@ -148,8 +156,9 @@ impl PlaybackEngine {
 
     #[tracing::instrument(skip(self))]
     async fn handle_tts_sample(&mut self, tts: Arc<TtsResponse>) -> eyre::Result<()> {
+        self.audio_sink.clear();
         self.audio_sink.set_volume(self.current_volume);
-        self.current_request = None;
+        self.cur_req = None;
 
         let audio_file = BufReader::new(File::open(&tts.file_path)?);
         let source = Decoder::new(audio_file)?;
@@ -162,7 +171,7 @@ impl PlaybackEngine {
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
         if self.audio_sink.empty() && self.current_request.is_none() {
             if let Some(request) = self.current_queue.pop_front() {
-                self.start_playback_request(request).await?;
+                self.start_playback_request(request, self.session()?).await?;
             }
         }
 
@@ -170,16 +179,17 @@ impl PlaybackEngine {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn start_playback_request(&mut self, request: PlaybackVoiceLine) -> eyre::Result<()> {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        self.current_request = Some(recv);
+    async fn start_playback_request(&mut self, request: PlaybackVoiceLine, session: Arc<GameTts>) -> eyre::Result<()> {
         self.current_volume = request.volume.unwrap_or(1.0);
-        
-        self.session_handle
-            .send(GameSessionMessage::Single(request.line, send))
-            .await?;
+        self.cur_req = Some(async move {
+            session.request_tts(request.line).await
+        }.boxed());
 
         Ok(())
+    }
+
+    fn session(&self) -> eyre::Result<Arc<GameTts>> {
+        self.session_handle.upgrade().context("Parent session is no longer available")
     }
 }
 
