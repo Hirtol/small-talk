@@ -17,7 +17,6 @@ use std::{
     io::BufReader,
     path::PathBuf,
 };
-use faster_whisper_rs::config::{WhisperConfig, WhisperConfigBuilder};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {
@@ -124,19 +123,24 @@ impl OrganiseCommand {
             tracing::info!("Starting processing of Voice: {:?}", voice_name);
             for sample in samples {
                 tracing::debug!("Handling sample: {:?}", sample);
+                let existing_transcript = sample.with_extension("txt");
+                let full_text = if existing_transcript.exists() {
+                    tracing::trace!("Found existing transcription, using it instead of Whisper");
+                    std::fs::read_to_string(existing_transcript)?
+                } else {
+                    let data = hound::WavReader::open(&sample)?
+                        .into_samples::<i16>()
+                        .flatten()
+                        .collect_vec();
 
-                let data = hound::WavReader::open(&sample)?
-                    .into_samples::<i16>()
-                    .flatten()
-                    .collect_vec();
+                    if data.is_empty() {
+                        tracing::error!("Empty sample set");
+                        continue;
+                    }
 
-                if data.is_empty() {
-                    tracing::error!("Empty sample set");
-                    continue;
-                }
-
-                // let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
-                let full_text = whisper.transcribe_file(&sample)?;
+                    // let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
+                    whisper.transcribe_file(&sample)?
+                };
 
                 let emotion = emotion_classifier
                     .infer([&full_text.trim()])?
