@@ -159,7 +159,7 @@ impl GameTts {
             .change_queue(|queue| {
                 for line in items.into_iter().rev() {
                     queue.retain(|v| v.0 != line || v.1.is_some());
-                    queue.push_front((line, None));
+                    queue.push_front((line, None, tracing::Span::current()));
                 }
             })
             .await
@@ -171,22 +171,11 @@ impl GameTts {
     /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
-        if request.force_generate {
-            self.data.invalidate_cache_line(&request).await?;
-        }
-        // First check if the cache already contains the required data
-        let out = if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
-            Arc::new(tts_response)
-        } else {
-            // Otherwise send a priority request to our queue
-            let (snd, rcv) = tokio::sync::oneshot::channel();
+        let (snd, rcv) = tokio::sync::oneshot::channel();
 
-            self.priority.change_queue(|queue| queue.push_front((request, Some(snd)))).await?;
+        self.request_tts_with_channel(request, snd).await?;
 
-            rcv.await?
-        };
-
-        Ok(out)
+        Ok(rcv.await?)
     }
 
     #[tracing::instrument(skip(self))]
@@ -199,7 +188,7 @@ impl GameTts {
             let _ = send.send(Arc::new(tts_response));
         } else {
             // Otherwise send a priority request to our queue
-            self.priority.change_queue(move |queue| queue.push_front((request, Some(send)))).await?;
+            self.priority.change_queue(move |queue| queue.push_front((request, Some(send), tracing::Span::current()))).await?;
         };
 
         Ok(())

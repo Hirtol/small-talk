@@ -11,11 +11,15 @@ use crate::{
 };
 use eyre::{ContextCompat, WrapErr};
 use path_abs::PathOps;
+use rand::{prelude::IteratorRandom, thread_rng};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
-use rand::prelude::IteratorRandom;
-use rand::thread_rng;
+use tracing::Instrument;
 
-pub type SingleRequest = (VoiceLine, Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>);
+pub type SingleRequest = (
+    VoiceLine,
+    Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>,
+    tracing::Span,
+);
 
 pub(super) struct GameQueueActor {
     pub tts: TtsBackend,
@@ -51,11 +55,11 @@ impl GameQueueActor {
         Ok(())
     }
 
-    async fn handle_request_err(&mut self, req: SingleRequest) -> eyre::Result<()> {
-        match self.handle_request(req).await {
+    async fn handle_request_err(&mut self, (next_item, respond, span): SingleRequest) -> eyre::Result<()> {
+        match self.handle_request(next_item, respond).instrument(span).await {
             Err(e) => match e {
                 GameSessionError::VoiceDoesNotExist { voice } => {
-                    tracing::warn!("Ignoring request which requested non-existant voice: {voice}");
+                    tracing::warn!("Ignoring request which requested non-existent voice: {voice}");
                     Ok(())
                 }
                 GameSessionError::IncorrectGeneration => {
@@ -79,7 +83,11 @@ impl GameQueueActor {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_request(&mut self, (next_item, respond): SingleRequest) -> GameResult<()> {
+    async fn handle_request(
+        &mut self,
+        next_item: VoiceLine,
+        respond: Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>,
+    ) -> GameResult<()> {
         let game_response = Arc::new(self.cache_or_request(next_item).await?);
         if let Some(response_channel) = respond {
             // If the consumer drops the other end we don't care

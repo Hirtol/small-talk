@@ -84,8 +84,7 @@ impl Debug for AudioData {
         f.debug_struct("AudioData")
             .field("n_channels", &self.n_channels)
             .field("sample_rate", &self.sample_rate)
-            .field("samples", &"...")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

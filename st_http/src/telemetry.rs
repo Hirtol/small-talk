@@ -14,20 +14,19 @@ pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + S
     let normal_format = our_format.clone().with_source_location(false);
 
     // We only want file locations in small_* logs, we therefore filter those out in the normal_logger.
-    let our_logger = tracing_tree::HierarchicalLayer::new(2)
-        .with_filter(our_filter)
-        .with_filter(env_filter());
-    // let our_logger = tracing_subscriber::fmt::layer()
-    //     .event_format(our_format)
+    // let our_logger = tracing_tree::HierarchicalLayer::new(2)
     //     .with_filter(our_filter)
     //     .with_filter(env_filter());
-    // let normal_logger = tracing_subscriber::fmt::layer()
-    //     .event_format(normal_format)
-    //     .with_filter(tracing_subscriber::filter::filter_fn(|m| !m.target().contains("st_")))
-    //     .with_filter(env_filter);
+    let our_logger = tracing_subscriber::fmt::layer()
+        .event_format(our_format)
+        .with_filter(our_filter)
+        .with_filter(env_filter());
+    let normal_logger = tracing_subscriber::fmt::layer()
+        .event_format(normal_format)
+        .with_filter(tracing_subscriber::filter::filter_fn(|m| !m.target().contains("st_")))
+        .with_filter(env_filter());
 
-    let subscriber = tracing_subscriber::registry().with(our_logger);
-        // .with(normal_logger);
+    let subscriber = tracing_subscriber::registry().with(our_logger).with(normal_logger);
 
     #[cfg(feature = "debug")]
     {
