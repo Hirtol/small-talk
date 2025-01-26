@@ -324,6 +324,14 @@ impl FsVoiceData {
         
         Ok(output)
     }
+
+    pub fn try_emotion_sample(&self, emotion: BasicEmotion) -> eyre::Result<impl Iterator<Item=Vec<FsVoiceSample>>> {
+        let mut samples = self.get_samples()?;
+
+        Ok(emotion.to_preference_order()
+            .into_iter()
+            .flat_map(move |emotion| samples.remove(&emotion)))
+    }
 }
 
 fn is_wav(d: &DirEntry) -> bool {

@@ -13,6 +13,7 @@ use tower_http::trace::TraceLayer;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
 use st_system::{TtsSystem, TtsSystemHandle};
+use st_system::emotion::EmotionBackend;
 use st_system::rvc_backends::RvcBackend;
 use st_system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig};
 use st_system::tts_backends::alltalk::AllTalkConfig;
@@ -62,7 +63,9 @@ impl Application {
         let seedvc_hq = LocalSeedHandle::new(seedvc_cfg)?;
         let rvc_backend = RvcBackend::new(seedvc, seedvc_hq);
 
-        let handle = Arc::new(TtsSystem::new(config.dirs.clone(), tts_backend, rvc_backend));
+        let emotion_backend = EmotionBackend::new(&config.dirs)?;
+
+        let handle = Arc::new(TtsSystem::new(config.dirs.clone(), tts_backend, rvc_backend, emotion_backend));
         
         let result = Application {
             tcp,

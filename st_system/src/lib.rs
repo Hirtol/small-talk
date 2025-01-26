@@ -14,6 +14,7 @@ use crate::tts_backends::{TtsBackend, BackendTtsRequest, BackendTtsResponse};
 use crate::voice_manager::VoiceManager;
 
 pub use crate::data::*;
+use crate::emotion::EmotionBackend;
 
 pub mod tts_backends;
 pub mod rvc_backends;
@@ -24,9 +25,9 @@ pub mod utils;
 pub mod playback;
 pub mod config;
 pub mod timeout;
+pub mod emotion;
 mod postprocessing;
 mod error;
-mod emotion;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
@@ -44,11 +45,13 @@ pub struct TtsSystem {
     voice_man: Arc<VoiceManager>,
     tts: TtsBackend,
     rvc: RvcBackend,
+    emotion: EmotionBackend,
 }
 
 impl TtsSystem {
-    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsBackend, rvc_backend: RvcBackend) -> Self {
+    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsBackend, rvc_backend: RvcBackend, emotion_backend: EmotionBackend) -> Self {
         Self {
+            emotion: emotion_backend,
             config: config.clone(),
             sessions: Arc::new(Default::default()),
             voice_man: Arc::new(VoiceManager::new(config)),
@@ -66,7 +69,7 @@ impl TtsSystem {
                 return Ok(game_ses.clone())
             }
         }
-        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.rvc.clone(), self.config.clone()).await?;
+        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.rvc.clone(), self.emotion.clone(), self.config.clone()).await?;
         pin.insert(game.into(), new_session.clone());
 
         Ok(new_session)

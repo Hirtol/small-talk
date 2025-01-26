@@ -20,7 +20,7 @@ pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + S
         .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directives)));
     let normal_logger = tracing_subscriber::fmt::layer()
         .event_format(normal_format)
-        .with_filter(tracing_subscriber::filter::filter_fn(|m| !m.target().contains("small_")))
+        .with_filter(tracing_subscriber::filter::filter_fn(|m| !m.target().contains("small_") && !m.target().contains("st_system")))
         .with_filter(env_filter);
 
     let subscriber = tracing_subscriber::registry().with(our_logger).with(normal_logger);

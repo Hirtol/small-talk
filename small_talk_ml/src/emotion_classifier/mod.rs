@@ -63,7 +63,7 @@ impl<B: Backend> BasicEmotionClassifier<B> {
 
         let model = config.model.init::<B>(&device).load_record(record);
 
-        tracing::trace!("Loading BERT embeddings");
+        tracing::trace!("Loading BERT embedding model");
         let model_params = LlamaModelParams::default().with_n_gpu_layers(0);
         let ctx_params = LlamaContextParams::default()
             .with_n_threads(16)
@@ -126,6 +126,23 @@ pub enum BasicEmotion {
 }
 
 impl BasicEmotion {
+    /// Return a constant array with a preferred order for each [BasicEmotion].
+    ///
+    /// If we're trying to find something to match a given [BasicEmotion] this indicates a possible order which makes the most sense.
+    pub const fn to_preference_order(&self) -> [Self; 8] {
+        use BasicEmotion::*;
+        match self {
+            Neutral => [Neutral, NonNeutral, Surprise, Joy, Sadness, Anger, Disgust, Fear],
+            NonNeutral => [NonNeutral, Neutral, Surprise, Joy, Sadness, Anger, Disgust, Fear],
+            Joy => [Joy, Surprise, Neutral, NonNeutral, Sadness, Anger, Disgust, Fear],
+            Surprise => [Surprise, Neutral, Joy, NonNeutral, Sadness, Anger, Disgust, Fear],
+            Anger => [Anger, Neutral, Sadness, Disgust, Fear, Joy, Surprise, NonNeutral],
+            Sadness => [Sadness, Neutral, Anger, Disgust, Fear, Joy, Surprise, NonNeutral],
+            Disgust => [Disgust, Neutral, Anger, Sadness, Fear, Joy, Surprise, NonNeutral],
+            Fear => [Fear, Neutral, Sadness, Disgust, Anger, Joy, Surprise, NonNeutral],
+        }
+    }
+
     pub fn matches_file(&self, file_name: &str) -> bool {
         file_name.to_lowercase().contains(BASIC_EMOTIONS[*self as usize])
     }

@@ -11,7 +11,7 @@ async fn main() -> eyre::Result<()> {
 
     // Setup Tracing
     let subscriber = telemetry::create_subscriber(
-        "WARN,reqwest=DEBUG,small_talk=TRACE,small_talk_ml=TRACE,sqlx=WARN,hyper=WARN",
+        "WARN,reqwest=DEBUG,st_system=TRACE,small_talk=TRACE,small_talk_ml=TRACE,sqlx=WARN,hyper=WARN",
     );
     subscriber.init();
 
