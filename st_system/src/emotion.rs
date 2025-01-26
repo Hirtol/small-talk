@@ -1,0 +1,1 @@
+pub use small_talk_ml::emotion_classifier::{BasicEmotionClassifier, BasicEmotion};

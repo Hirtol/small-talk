@@ -7,7 +7,6 @@ edition = "2021"
 color-eyre = "0.6"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-console-subscriber = "0.4.1"
 
 eyre.workspace = true
 thiserror.workspace = true
@@ -18,10 +17,9 @@ rand = "0.8.5"
 strsim = "0.11.1"
 bytemuck = "1.21.0"
 
-tokio = { version = "1", features = ["full", "tracing"] }
+tokio = { version = "1", features = [] }
 futures = { version = "0.3" }
 
-tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
 reqwest = { version = "0.12.9", features = ["json", "multipart"] }
 url = { version = "2.5.4", features = ["serde"] }
 
@@ -41,7 +39,6 @@ pathdiff = "0.2.3"
 # Conf
 platform-dirs = "0.3"
 toml = "0.8"
-
 
 # rodio for playback!
 rodio = "0.20.1"

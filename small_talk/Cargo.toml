@@ -14,18 +14,21 @@ path = "src/lib.rs"
 path = "src/main.rs"
 name = "small_talk"
 
+[features]
+debug = ["console-subscriber", "tokio/tracing"]
+
 [dependencies]
 color-eyre = "0.6"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-console-subscriber = "0.4.1"
+console-subscriber = { version = "0.4.1", optional = true }
 
 eyre.workspace = true
 thiserror.workspace = true
 error_set.workspace = true
 itertools = { workspace = true }
 
-tokio = { version = "1", features = ["full", "tracing"] }
+tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
 
 axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"] }
@@ -51,7 +54,6 @@ toml = "0.8"
 
 # ML
 st_system = {path = "../st_system"}
-process-wrap = { version = "8.2", features = ["tokio1"] }
 
 [dev-dependencies]
 tracing-test = "0.2.5"

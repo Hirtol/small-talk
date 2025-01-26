@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Serialize};
 use crate::api::extractor::Json;
 use axum::extract::rejection::*;
+
 error_set! {
     #[derive(OperationIo)]
     ApiError = {

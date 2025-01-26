@@ -1,5 +1,5 @@
 use burn::{
-    backend::{wgpu::WgpuDevice, Autodiff, Wgpu},
+    backend::{Autodiff},
     data::dataset::{
         transform::ComposedDataset,
         Dataset, HuggingfaceDatasetLoader, InMemDataset, SqliteDataset,
@@ -27,7 +27,6 @@ use std::{
 };
 use burn::backend::NdArray;
 use burn::backend::ndarray::NdArrayDevice;
-use fon::samp::Samp16;
 use small_talk_ml::emotion_classifier::{model, BasicEmotionClassifier};
 
 const CLASSES: [&str; 28] = [

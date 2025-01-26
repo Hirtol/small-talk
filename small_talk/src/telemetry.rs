@@ -23,7 +23,13 @@ pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + S
         .with_filter(tracing_subscriber::filter::filter_fn(|m| !m.target().contains("small_")))
         .with_filter(env_filter);
 
-    let console = console_subscriber::spawn();
+    let subscriber = tracing_subscriber::registry().with(our_logger).with(normal_logger);
 
-    tracing_subscriber::registry().with(our_logger).with(normal_logger).with(console)
+    #[cfg(feature = "debug")]
+    {
+        let console = console_subscriber::spawn();
+        subscriber.with(console)
+    }
+    #[cfg(not(feature = "debug"))]
+    subscriber
 }

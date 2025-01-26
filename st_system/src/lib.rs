@@ -26,6 +26,7 @@ pub mod config;
 pub mod timeout;
 mod postprocessing;
 mod error;
+mod emotion;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
