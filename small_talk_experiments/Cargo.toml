@@ -9,7 +9,7 @@ eyre.workspace = true
 thiserror.workspace = true
 error_set.workspace = true
 self_cell = "1.0.4"
-itertools = "0.13.0"
+itertools.workspace = true
 strsim = "0.11.1"
 
 

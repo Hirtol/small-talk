@@ -1,18 +1,7 @@
 [package]
-name = "small_talk"
+name = "st_system"
 version = "0.1.0"
 edition = "2021"
-description = "TTS api for game voicing"
-repository = "https://github.com/Hirtol/small-talk"
-license = "MIT"
-
-[lib]
-doctest = false
-path = "src/lib.rs"
-
-[[bin]]
-path = "src/main.rs"
-name = "small_talk"
 
 [dependencies]
 color-eyre = "0.6"
@@ -24,34 +13,41 @@ eyre.workspace = true
 thiserror.workspace = true
 error_set.workspace = true
 itertools = { workspace = true }
+papaya = { version = "0.1.4", features = ["serde"] }
+rand = "0.8.5"
+strsim = "0.11.1"
+bytemuck = "1.21.0"
 
 tokio = { version = "1", features = ["full", "tracing"] }
 futures = { version = "0.3" }
 
-axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"] }
-axum-extra = { version = "0.9.6", features = [] }
 tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
-tower-http = { version = "0.6.1", features = ["full"] }
 reqwest = { version = "0.12.9", features = ["json", "multipart"] }
 url = { version = "2.5.4", features = ["serde"] }
 
-axum-jsonschema = { version = "0.8.0", features = ["aide"] }
-aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
 schemars = { version = "0.8.10", features = [] }
 
 chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 
+# Path Walking
+walkdir = "2.4"
+path_abs = { version = "0.5", default-features = false }
+dunce = "1.0"
+tempfile = "3.14.0"
+pathdiff = "0.2.3"
+
 # Conf
-config = { version = "0.15.6", features = ["toml"] }
-dotenv = "0.15"
 platform-dirs = "0.3"
 toml = "0.8"
 
-# ML
-st_system = {path = "../st_system"}
-process-wrap = { version = "8.2", features = ["tokio1"] }
 
-[dev-dependencies]
-tracing-test = "0.2.5"
+# rodio for playback!
+rodio = "0.20.1"
+wavers.workspace = true
+ebur128 = "0.1.10"
+
+# ML
+small_talk_ml = {path = "../small_talk_ml", features = ["cuda"]}
+process-wrap = { version = "8.2", features = ["tokio1"] }

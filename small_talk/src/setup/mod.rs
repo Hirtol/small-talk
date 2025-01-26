@@ -10,7 +10,6 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeFile};
 use tower_http::trace::TraceLayer;
-use small_talk_ml::stt::WhisperTranscribe;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
 use st_system::{TtsSystem, TtsSystemHandle};

@@ -4,7 +4,6 @@ use tokio::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
 use st_system::config::TtsSystemConfig;
 use st_system::rvc_backends::seedvc::api::SeedVcApiConfig;
