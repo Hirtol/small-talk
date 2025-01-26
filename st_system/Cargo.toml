@@ -46,5 +46,5 @@ wavers.workspace = true
 ebur128 = "0.1.10"
 
 # ML
-small_talk_ml = {path = "../small_talk_ml", features = ["cuda"]}
+st_ml = {path = "../st_ml", features = ["cuda"]}
 process-wrap = { version = "8.2", features = ["tokio1"] }

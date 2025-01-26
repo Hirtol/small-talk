@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use itertools::Itertools;
-use small_talk_ml::emotion_classifier::BasicEmotion;
+use st_ml::emotion_classifier::BasicEmotion;
 use std::path::PathBuf;
 use std::sync::Arc;
 use eyre::ContextCompat;

@@ -19,7 +19,7 @@ error_set::error_set! {
 
     EmotionError = {
         #[display("Error loading model: {0}")]
-        LoadError(small_talk_ml::emotion_classifier::LoadError),
+        LoadError(st_ml::emotion_classifier::LoadError),
     } || EyreError;
 
     RvcError = {

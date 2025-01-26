@@ -1,5 +1,5 @@
 [package]
-name = "small_talk_ml"
+name = "st_ml"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [[bin]]
 path = "src/main.rs"
-name = "small_talk_ml"
+name = "st_ml"
 
 [features]
 default = []

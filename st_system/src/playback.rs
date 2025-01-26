@@ -186,7 +186,6 @@ impl PlaybackEngine {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
         if self.audio_sink.empty() && self.current_request.is_none() {
             if let Some(request) = self.current_queue.pop_front() {

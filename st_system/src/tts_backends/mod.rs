@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use small_talk_ml::stt::WhisperTranscribe;
+use st_ml::stt::WhisperTranscribe;
 use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
 use crate::timeout::DroppableState;
 use crate::TtsModel;

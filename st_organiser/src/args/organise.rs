@@ -2,10 +2,10 @@ use eyre::ContextCompat;
 use futures::StreamExt;
 use itertools::Itertools;
 use path_abs::PathInfo;
-use small_talk::{
+use st_http::{
     config::{Config, SharedConfig},
 };
-use small_talk_ml::{
+use st_ml::{
     embeddings::LLamaEmbedder,
     emotion_classifier::{BasicEmotion, BasicEmotionClassifier},
 };
@@ -102,15 +102,15 @@ impl OrganiseCommand {
 
         tracing::warn!("Using Whisper emotion detection, this is not perfect");
 
-        let device = small_talk_ml::burn::backend::ndarray::NdArrayDevice::default();
-        let mut emotion_classifier: BasicEmotionClassifier<small_talk_ml::CpuBackend> = BasicEmotionClassifier::new(
+        let device = st_ml::burn::backend::ndarray::NdArrayDevice::default();
+        let mut emotion_classifier: BasicEmotionClassifier<st_ml::CpuBackend> = BasicEmotionClassifier::new(
             &config.dirs.emotion_classifier_model,
             &config.dirs.bert_embeddings_model,
             device,
         )?;
 
         let whisper_path = &config.dirs.whisper_model;
-        let mut whisper = small_talk_ml::stt::WhisperTranscribe::new(whisper_path, 12)?;
+        let mut whisper = st_ml::stt::WhisperTranscribe::new(whisper_path, 12)?;
 
         // let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
         // let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();

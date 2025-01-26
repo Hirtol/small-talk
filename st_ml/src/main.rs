@@ -11,7 +11,7 @@ use burn::{
 };
 use itertools::Itertools;
 use llama_cpp_2::{context::params::LlamaContextParams, model::params::LlamaModelParams};
-use small_talk_ml::{
+use st_ml::{
     embeddings::LLamaEmbedder,
     emotion_classifier::{
         data::EmotionItem,
@@ -27,7 +27,7 @@ use std::{
 };
 use burn::backend::NdArray;
 use burn::backend::ndarray::NdArrayDevice;
-use small_talk_ml::emotion_classifier::{model, BasicEmotionClassifier};
+use st_ml::emotion_classifier::{model, BasicEmotionClassifier};
 
 const CLASSES: [&str; 28] = [
     "admiration",
@@ -300,4 +300,4 @@ fn get_emotion_map() -> HashMap<String, usize> {
 // let logits = model.forward(embeddings2.pop().unwrap());
 // println!("Logits: {logits:?}");
 
-// small_talk_ml::training::train::<MyAuto>("./artifacts", train, test, llama, TrainingConfig::new(model_cfg, AdamConfig::new()), device);
+// st_ml::training::train::<MyAuto>("./artifacts", train, test, llama, TrainingConfig::new(model_cfg, AdamConfig::new()), device);

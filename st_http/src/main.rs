@@ -1,6 +1,6 @@
 use tracing_subscriber::util::SubscriberInitExt;
-use small_talk::setup::Application;
-use small_talk::{get_quit_notifier, telemetry};
+use st_http::setup::Application;
+use st_http::{get_quit_notifier, telemetry};
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -11,12 +11,12 @@ async fn main() -> eyre::Result<()> {
 
     // Setup Tracing
     let subscriber = telemetry::create_subscriber(
-        "WARN,reqwest=DEBUG,st_system=TRACE,small_talk=TRACE,small_talk_ml=TRACE,sqlx=WARN,hyper=WARN",
+        "WARN,reqwest=DEBUG,st_system=TRACE,st_http=TRACE,st_ml=TRACE,sqlx=WARN,hyper=WARN",
     );
     subscriber.init();
 
     // Setup server
-    let config = small_talk::config::initialise_config()?;
+    let config = st_http::config::initialise_config()?;
     let app = Application::new(config).await?;
 
     let notifier = get_quit_notifier();

@@ -1,5 +1,5 @@
 [package]
-name = "small_talk"
+name = "st_http"
 version = "0.1.0"
 edition = "2021"
 description = "TTS api for game voicing"
@@ -12,7 +12,7 @@ path = "src/lib.rs"
 
 [[bin]]
 path = "src/main.rs"
-name = "small_talk"
+name = "st_http"
 
 [features]
 debug = ["console-subscriber", "tokio/tracing"]
@@ -21,6 +21,7 @@ debug = ["console-subscriber", "tokio/tracing"]
 color-eyre = "0.6"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-tree = "0.4.0"
 console-subscriber = { version = "0.4.1", optional = true }
 
 eyre.workspace = true

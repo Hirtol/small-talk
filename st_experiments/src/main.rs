@@ -1,5 +1,5 @@
 use burn::backend::{ndarray::NdArrayDevice, NdArray};
-use small_talk_ml::emotion_classifier::BasicEmotionClassifier;
+use st_ml::emotion_classifier::BasicEmotionClassifier;
 
 mod f5_rs;
 mod audio;

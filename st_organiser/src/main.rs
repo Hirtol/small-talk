@@ -9,8 +9,8 @@ mod trace;
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let args = args::ClapArgs::parse();
-    let conf = Arc::new(small_talk::config::initialise_config()?);
-    trace::create_subscriber("ERROR,small_talk=TRACE,small_talk_organiser=TRACE,small_talk_ml=TRACE").init();
+    let conf = Arc::new(st_http::config::initialise_config()?);
+    trace::create_subscriber("ERROR,st_http=TRACE,st_organiser=TRACE,st_ml=TRACE").init();
 
     let now = std::time::Instant::now();
 

@@ -1,5 +1,5 @@
 [package]
-name = "small_talk_organiser"
+name = "st_organiser"
 version = "0.1.0"
 edition = "2021"
 
@@ -45,7 +45,7 @@ platform-dirs = "0.3"
 toml = "0.8"
 
 # ML
-small_talk_ml = { path = "../small_talk_ml", features = ["cuda"] }
-small_talk = { path = "../small_talk" }
+st_ml = { path = "../st_ml", features = ["cuda"] }
+st_http = { path = "../st_http" }
 libloading = "0.8.5"
 hound = { version = "3.5.1" }

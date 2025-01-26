@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 use eyre::Context;
-use small_talk_ml::CpuBackend;
+use st_ml::CpuBackend;
 use crate::{config::TtsSystemConfig, error::EmotionError};
-pub use small_talk_ml::emotion_classifier::{BasicEmotion, BasicEmotionClassifier};
+pub use st_ml::emotion_classifier::{BasicEmotion, BasicEmotionClassifier};
 
 #[derive(Clone)]
 pub struct EmotionBackend {
@@ -11,7 +11,7 @@ pub struct EmotionBackend {
 
 impl EmotionBackend {
     pub fn new(config: &TtsSystemConfig) -> Result<EmotionBackend, EmotionError> {
-        let device = small_talk_ml::burn::backend::ndarray::NdArrayDevice::default();
+        let device = st_ml::burn::backend::ndarray::NdArrayDevice::default();
         let classifier =
             BasicEmotionClassifier::new(&config.emotion_classifier_model, &config.bert_embeddings_model, device)?;
         Ok(Self { model: Arc::new(Mutex::new(classifier)) })
