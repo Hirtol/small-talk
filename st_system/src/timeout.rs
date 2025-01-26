@@ -1,6 +1,9 @@
 use std::time::Duration;
 use eyre::{ContextCompat, OptionExt};
 
+/// A simple cell which can automatically drop the contained state when it hasn't been accessed for a given `timeout`.
+///
+/// Expects [Self::timeout_future] to be awaited in a [tokio::select!] call.
 pub struct GcCell<T> {
     timeout: Duration,
     last_access: std::time::Instant,

@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use reqwest::{ClientBuilder, Url};
 use serde::de::DeserializeOwned;
-use crate::system::tts_backends::alltalk::AllTalkConfig;
+use crate::tts_backends::alltalk::AllTalkConfig;
 
 pub struct AllTalkApi {
     config: AllTalkConfig,

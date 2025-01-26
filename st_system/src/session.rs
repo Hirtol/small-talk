@@ -1,17 +1,3 @@
-use crate::{
-    config::SharedConfig,
-    system::{
-        config::TtsSystemConfig,
-        error::GameSessionError,
-        playback::PlaybackEngineHandle,
-        postprocessing::AudioData,
-        rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult},
-        tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsBackend, TtsResult},
-        voice_manager::{FsVoiceData, FsVoiceSample, VoiceDestination, VoiceManager, VoiceReference},
-        CharacterName, CharacterVoice, Gender, PostProcessing, TtsModel, TtsResponse, TtsSystemHandle, TtsVoice, Voice,
-        VoiceLine,
-    },
-};
 use eyre::{Context, ContextCompat};
 use itertools::Itertools;
 use path_abs::PathOps;
@@ -26,6 +12,14 @@ use std::{
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{broadcast, broadcast::error::RecvError, Mutex, Notify};
 use tokio::sync::mpsc::error::TrySendError;
+use crate::{CharacterName, CharacterVoice, Gender, PostProcessing, TtsModel, TtsResponse, TtsVoice, VoiceLine};
+use crate::config::TtsSystemConfig;
+use crate::error::GameSessionError;
+use crate::playback::PlaybackEngineHandle;
+use crate::postprocessing::AudioData;
+use crate::rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult};
+use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsBackend, TtsResult};
+use crate::voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference};
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
@@ -46,11 +40,11 @@ impl GameSessionHandle {
         voice_man: Arc<VoiceManager>,
         tts: TtsBackend,
         rvc: RvcBackend,
-        config: SharedConfig,
+        config: Arc<TtsSystemConfig>,
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);
         // Small amount before we exert back-pressure
-        let (game_data, line_cache) = GameData::create_or_load_from_file(game_name, &config.dirs).await?;
+        let (game_data, line_cache) = GameData::create_or_load_from_file(game_name, &config).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
         let (q_send, q_recv) = ordered_channel();
         let (p_send, p_recv) = ordered_channel();
@@ -217,8 +211,7 @@ struct GameQueueActor {
 }
 
 struct GameSharedData {
-    config: SharedConfig,
-
+    config: Arc<TtsSystemConfig>,
     voice_manager: Arc<VoiceManager>,
     game_data: GameData,
     line_cache: Arc<Mutex<LineCache>>,
@@ -712,14 +705,14 @@ impl GameSharedData {
 
     /// Serialize all variable state (such as character assignments) to disk.
     async fn save_state(&self) -> eyre::Result<()> {
-        let config_save = self.config.dirs.game_dir(&self.game_data.game_name).join(CONFIG_NAME);
+        let config_save = self.config.game_dir(&self.game_data.game_name).join(CONFIG_NAME);
         let writer = std::io::BufWriter::new(std::fs::File::create(config_save)?);
 
         Ok(serde_json::to_writer_pretty(writer, &self.game_data)?)
     }
 
     fn line_cache_path(&self) -> PathBuf {
-        self.config.dirs.game_lines_cache(&self.game_data.game_name)
+        self.config.game_lines_cache(&self.game_data.game_name)
     }
 }
 

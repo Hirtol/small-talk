@@ -7,13 +7,13 @@ use crate::{
         },
         ApiResult, ApiRouter, AppState,
     },
-    system::playback::PlaybackVoiceLine,
 };
 use aide::{axum::routing::post_with, transform::TransformOperation};
 use axum::extract::{Path, State};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::VecDeque;
+use st_system::playback::PlaybackVoiceLine;
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest(

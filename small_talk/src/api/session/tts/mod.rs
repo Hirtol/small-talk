@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use routes::config;
-use crate::system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsVoice, VoiceLine};
+use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsVoice, VoiceLine};
 
 pub mod routes;
 

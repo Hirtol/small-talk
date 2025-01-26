@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use path_abs::{PathInfo, PathOps};
 use serde::{Deserialize, Serialize};
-use crate::system::config::TtsSystemConfig;
-use crate::system::rvc_backends::seedvc::api::SeedVcApiConfig;
-use crate::system::tts_backends::alltalk::AllTalkConfig;
+use st_system::config::TtsSystemConfig;
+use st_system::rvc_backends::seedvc::api::SeedVcApiConfig;
+use st_system::tts_backends::alltalk::AllTalkConfig;
 
 pub type SharedConfig = Arc<Config>;
 
@@ -56,7 +56,7 @@ pub struct Config {
     pub app: ServerConfig,
     /// All directory related configs
     #[serde(default)]
-    pub dirs: TtsSystemConfig,
+    pub dirs: Arc<TtsSystemConfig>,
     #[serde(default)]
     pub xtts: TtsConfig,
     #[serde(default)]
@@ -107,7 +107,7 @@ impl Default for ServerConfig {
 
 impl Default for TtsConfig {
     fn default() -> Self {
-        let app_dir = crate::get_app_dirs().config_dir;
+        let app_dir = st_system::get_app_dirs().config_dir;
         Self {
             local_all_talk: app_dir.join("alltalk"),
             timeout: Duration::from_secs(30 * 60),
@@ -118,7 +118,7 @@ impl Default for TtsConfig {
 
 impl Default for RvcConfig {
     fn default() -> Self {
-        let app_dir = crate::get_app_dirs().config_dir;
+        let app_dir = st_system::get_app_dirs().config_dir;
         Self {
             local_path: app_dir.join("seedvc"),
             timeout: Duration::from_secs(30 * 60),
@@ -138,5 +138,5 @@ pub fn get_full_config_path() -> PathBuf {
 
 /// Retrieve the directory which will be used to locate/save the config file.
 pub fn get_config_directory() -> PathBuf {
-    crate::get_app_dirs().config_dir
+    st_system::get_app_dirs().config_dir
 }

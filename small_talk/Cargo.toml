@@ -18,6 +18,7 @@ name = "small_talk"
 color-eyre = "0.6"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+console-subscriber = "0.4.1"
 
 eyre.workspace = true
 thiserror.workspace = true
@@ -60,14 +61,9 @@ dotenv = "0.15"
 platform-dirs = "0.3"
 toml = "0.8"
 
-
-# rodio for playback!
-rodio = "0.20.1"
-wavers.workspace = true
-ebur128 = "0.1.10"
-
 # ML
 small_talk_ml = {path = "../small_talk_ml", features = ["cuda"]}
+st_system = {path = "../st_system"}
 process-wrap = { version = "8.2", features = ["tokio1"] }
 
 [dev-dependencies]

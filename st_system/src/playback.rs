@@ -1,6 +1,4 @@
-use crate::system::{
-    session::{GameSessionHandle, GameTts},
-    voice_manager::VoiceManager,
+use crate::{
     TtsModel, TtsResponse, VoiceLine,
 };
 use eyre::ContextCompat;
@@ -13,6 +11,8 @@ use std::{
     sync::{Arc, Weak},
     time::Duration,
 };
+use crate::session::{GameSessionHandle, GameTts};
+use crate::voice_manager::VoiceManager;
 use tokio::sync::broadcast;
 
 #[derive(Clone)]

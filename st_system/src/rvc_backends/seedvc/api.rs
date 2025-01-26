@@ -1,8 +1,8 @@
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::system::postprocessing::AudioData;
-use crate::system::rvc_backends::{BackendRvcRequest};
+use crate::postprocessing::AudioData;
+use crate::rvc_backends::{BackendRvcRequest};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeedVcApiConfig {

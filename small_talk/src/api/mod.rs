@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use crate::api::error::{ApiError, ApiResponseError};
 use crate::api::extractor::Json;
 use crate::config::SharedConfig;
-use crate::system::{TtsSystem, TtsSystemHandle};
+use st_system::{TtsSystem, TtsSystemHandle};
 
 mod extractor;
 pub mod error;

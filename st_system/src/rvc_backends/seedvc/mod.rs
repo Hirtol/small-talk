@@ -1,5 +1,5 @@
 use std::time::Duration;
-use crate::system::rvc_backends::seedvc::api::{SeedVcApi, SeedVcApiConfig};
+use crate::rvc_backends::seedvc::api::{SeedVcApi, SeedVcApiConfig};
 
 pub mod api;
 pub mod local;

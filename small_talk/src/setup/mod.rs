@@ -13,12 +13,12 @@ use tower_http::trace::TraceLayer;
 use small_talk_ml::stt::WhisperTranscribe;
 use crate::api::AppState;
 use crate::config::{Config, SharedConfig};
-use crate::system::{TtsSystem, TtsSystemHandle};
-use crate::system::rvc_backends::RvcBackend;
-use crate::system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig};
-use crate::system::tts_backends::alltalk::AllTalkConfig;
-use crate::system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
-use crate::system::tts_backends::TtsBackend;
+use st_system::{TtsSystem, TtsSystemHandle};
+use st_system::rvc_backends::RvcBackend;
+use st_system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig};
+use st_system::tts_backends::alltalk::AllTalkConfig;
+use st_system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
+use st_system::tts_backends::TtsBackend;
 
 mod first_time;
 
@@ -63,7 +63,7 @@ impl Application {
         let seedvc_hq = LocalSeedHandle::new(seedvc_cfg)?;
         let rvc_backend = RvcBackend::new(seedvc, seedvc_hq);
 
-        let handle = Arc::new(TtsSystem::new(config.clone(), tts_backend, rvc_backend));
+        let handle = Arc::new(TtsSystem::new(config.dirs.clone(), tts_backend, rvc_backend));
         
         let result = Application {
             tcp,

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::system::TtsModel;
-use crate::system::voice_manager::VoiceReference;
+use crate::TtsModel;
+use crate::voice_manager::VoiceReference;
 
 /// Internal name for a particular voice.
 pub type Voice = String;

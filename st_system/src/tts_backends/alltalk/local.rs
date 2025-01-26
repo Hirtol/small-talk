@@ -1,4 +1,4 @@
-use crate::system::tts_backends::alltalk::{api::AllTalkApi, AllTalkConfig, AllTalkTTS};
+use crate::tts_backends::alltalk::{api::AllTalkApi, AllTalkConfig, AllTalkTTS};
 use eyre::{ContextCompat, OptionExt};
 use std::{
     path::{Path, PathBuf},
@@ -9,8 +9,8 @@ use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
 };
-use crate::system::timeout::{DroppableState, GcCell};
-use crate::system::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
+use crate::timeout::{DroppableState, GcCell};
+use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
 
 #[derive(Debug, Clone)]
 pub struct LocalAllTalkConfig {
@@ -118,9 +118,9 @@ impl LocalAllTalk {
             AllTalkMessage::TtsRequest(request, response) => {
                 let voice_path = self.voices_path();
                 let state = self.state.get_state(&self.config).await?;
-                let output_file = crate::system::utils::random_file_name(24, None);
+                let output_file = crate::utils::random_file_name(24, None);
                 // We have to move (hardlink) the sample to the AllTalk voices dir
-                let sample_name = crate::system::utils::random_file_name(24, None);
+                let sample_name = crate::utils::random_file_name(24, None);
                 let input_file = request.voice_reference[0].link_to_name(voice_path, &sample_name)?;
                 
                 let alltalk_req = super::api::TtsRequest {
@@ -240,8 +240,8 @@ mod tests {
     use process_wrap::tokio::TokioChildWrapper;
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
-    use crate::system::tts_backends::alltalk::AllTalkConfig;
-    use crate::system::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkConfig, LocalAllTalkHandle};
+    use crate::tts_backends::alltalk::AllTalkConfig;
+    use crate::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkConfig, LocalAllTalkHandle};
 
     #[tokio::test]
     #[tracing_test::traced_test]

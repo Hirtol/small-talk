@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 default-members = ["small_talk"]
-members = ["small_talk", "small_talk_experiments", "small_talk_ml", "small_talk_organiser"]
+members = [ "st_system","small_talk", "small_talk_experiments", "small_talk_ml", "small_talk_organiser"]
 
 [workspace.dependencies]
 tracing = "0.1.40"

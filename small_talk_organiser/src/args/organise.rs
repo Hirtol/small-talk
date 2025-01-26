@@ -4,7 +4,6 @@ use itertools::Itertools;
 use path_abs::PathInfo;
 use small_talk::{
     config::{Config, SharedConfig},
-    system::voice_manager::{VoiceDestination, VoiceManager, VoiceSample},
 };
 use small_talk_ml::{
     embeddings::LLamaEmbedder,
@@ -17,6 +16,7 @@ use std::{
     io::BufReader,
     path::PathBuf,
 };
+use st_system::voice_manager::{VoiceDestination, VoiceManager, VoiceSample};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::{ApiResult, ApiRouter, AppState};
 use crate::api::extractor::{Json};
 use crate::api::session::Session;
-use crate::system::{CharacterName, Voice};
-use crate::system::voice_manager::VoiceReference;
+use st_system::{CharacterName, Voice};
+use st_system::voice_manager::VoiceReference;
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest("/session/:id",

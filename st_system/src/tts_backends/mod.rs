@@ -4,10 +4,10 @@ use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use small_talk_ml::stt::WhisperTranscribe;
-use crate::system::tts_backends::alltalk::local::LocalAllTalkHandle;
-use crate::system::{TtsModel};
-use crate::system::timeout::DroppableState;
-use crate::system::voice_manager::FsVoiceSample;
+use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
+use crate::timeout::DroppableState;
+use crate::TtsModel;
+use crate::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
 
