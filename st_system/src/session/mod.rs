@@ -12,6 +12,7 @@ use std::{
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{broadcast, broadcast::error::RecvError, Mutex, Notify};
 use tokio::sync::mpsc::error::TrySendError;
+use linecache::LineCache;
 use order_channel::OrderedSender;
 use queue_actor::{GameQueueActor, SingleRequest};
 use crate::{CharacterName, CharacterVoice, Gender, PostProcessing, TtsModel, TtsResponse, TtsVoice, VoiceLine};
@@ -31,6 +32,7 @@ type GameResult<T> = std::result::Result<T, GameSessionError>;
 
 mod queue_actor;
 mod order_channel;
+mod linecache;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {
@@ -195,19 +197,15 @@ impl GameTts {
     }
 }
 
-struct GameSharedData {
-    config: Arc<TtsSystemConfig>,
-    voice_manager: Arc<VoiceManager>,
-    game_data: GameData,
-    line_cache: Arc<Mutex<LineCache>>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GameData {
+    /// The name of the game for which this data is associated.
     game_name: String,
+    /// A mapping from character names to their assigned voice references.
     character_map: papaya::HashMap<CharacterName, VoiceReference>,
-    /// The voices which should be in the random pool of assignment
+    /// The voices which should be in the random pool of assignment for male characters.
     male_voices: Vec<VoiceReference>,
+    /// The voices which should be in the random pool of assignment for female characters.
     female_voices: Vec<VoiceReference>,
 }
 
@@ -252,6 +250,13 @@ impl GameData {
     }
 }
 
+struct GameSharedData {
+    config: Arc<TtsSystemConfig>,
+    voice_manager: Arc<VoiceManager>,
+    game_data: GameData,
+    line_cache: Arc<Mutex<LineCache>>,
+}
+
 impl GameSharedData {
     #[tracing::instrument(skip_all)]
     async fn try_cache_retrieve(&self, voice_line: &VoiceLine) -> eyre::Result<Option<TtsResponse>> {
@@ -260,7 +265,7 @@ impl GameSharedData {
             TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
         };
         tracing::trace!(?voice_to_use, "Will try to use voice for cache");
-        // TODO: Debug race condition causing rare hanging after this line
+
         // First check if we have a cache reference
         if !voice_line.force_generate {
             if let Some(file_name) = self
@@ -417,66 +422,6 @@ impl GameSharedData {
 
     fn line_cache_path(&self) -> PathBuf {
         self.config.game_lines_cache(&self.game_data.game_name)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct LineCache {
-    /// Voice -> Line voiced -> file name
-    pub voice_to_line: HashMap<VoiceReference, HashMap<String, String>>,
-}
-
-// Needed in order to properly handle VoiceReference
-impl Serialize for LineCache {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Create a temporary HashMap<String, HashMap<String, String>>
-        let transformed: HashMap<String, HashMap<String, String>> = self
-            .voice_to_line
-            .iter()
-            .map(|(key, value)| {
-                let key_str = match &key.location {
-                    VoiceDestination::Global => format!("global_{}", key.name),
-                    VoiceDestination::Game(game_name) => format!("game_{game_name}_{}", key.name),
-                };
-                (key_str, value.clone())
-            })
-            .collect();
-
-        transformed.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for LineCache {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize into a temporary HashMap<String, HashMap<String, String>>
-        let raw_map: HashMap<String, HashMap<String, String>> = HashMap::deserialize(deserializer)?;
-
-        // Convert back to HashMap<VoiceReference, HashMap<String, String>>
-        let voice_to_line = raw_map
-            .into_iter()
-            .map(|(key, value)| {
-                let (location, name) = if let Some(rest) = key.strip_prefix("global_") {
-                    (VoiceDestination::Global, rest.to_string())
-                } else if let Some(rest) = key.strip_prefix("game_") {
-                    let (game_name, character) = rest
-                        .split_once("_")
-                        .ok_or_else(|| D::Error::custom("No game identifier found"))?;
-                    (VoiceDestination::Game(game_name.into()), character.to_string())
-                } else {
-                    return Err(serde::de::Error::custom(format!("Invalid key format: {}", key)));
-                };
-
-                Ok((VoiceReference { name, location }, value))
-            })
-            .collect::<Result<HashMap<_, _>, D::Error>>()?;
-
-        Ok(LineCache { voice_to_line })
     }
 }
 
