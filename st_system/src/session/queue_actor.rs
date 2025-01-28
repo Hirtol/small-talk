@@ -43,6 +43,7 @@ impl GameQueueActor {
                     self.handle_request_err(next_item).await?
                 },
                 Some(next_item) = self.queue.recv() => {
+                    tracing::trace!("Remaining items in queue: {}", self.queue.len().await);
                     self.handle_request_err(next_item).await?
                 },
                 else => break
@@ -66,8 +67,12 @@ impl GameQueueActor {
                     tracing::warn!("Skipping line request after too many generation failure");
                     Ok(())
                 }
-                GameSessionError::Timeout(e) => {
+                GameSessionError::Timeout => {
                     tracing::warn!("Skipping line request due to timeout");
+                    Ok(())
+                }
+                GameSessionError::InvalidText { txt } => {
+                    tracing::warn!(?txt, "Received invalid text in request");
                     Ok(())
                 }
                 e => {
@@ -103,6 +108,10 @@ impl GameQueueActor {
         // First check if we have a cache reference
         if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
             return Ok(response);
+        }
+        // TODO: Probably just make `line` an ASCII string, parsing over validation and all that.
+        if !voice_line.line.is_ascii() {
+            return Err(GameSessionError::InvalidText {txt: voice_line.line})
         }
         tracing::debug!("No cache available, requesting from TTS");
         // If we want to use RVC we'll try and warm it up before the TTS request to save time

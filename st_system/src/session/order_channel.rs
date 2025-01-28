@@ -60,4 +60,9 @@ impl<T> OrderedReceiver<T> {
         let mut q = self.queue.lock().await;
         q.pop_front()
     }
+
+    /// Returns the number of items in the queue.
+    pub async fn len(&self) -> usize {
+        self.queue.lock().await.len()
+    }
 }

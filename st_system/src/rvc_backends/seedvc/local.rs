@@ -8,6 +8,7 @@ use process_wrap::tokio::TokioChildWrapper;
 use tokio::{
     process::{Child, Command},
 };
+use tokio::time::error::Elapsed;
 use crate::error::RvcError;
 use crate::rvc_backends::{BackendRvcRequest, BackendRvcResponse, RvcResult};
 use crate::rvc_backends::seedvc::api::SeedVcApiConfig;
@@ -66,11 +67,11 @@ impl LocalSeedHandle {
     }
 
     /// Send a RVC request to the SeedVc instance.
-    pub async fn rvc_request(&self, request: BackendRvcRequest) -> eyre::Result<BackendRvcResponse> {
+    pub async fn rvc_request(&self, request: BackendRvcRequest) -> Result<BackendRvcResponse, RvcError> {
         let (send, recv) = tokio::sync::oneshot::channel();
-        self.send.send(SeedMessage::RvcRequest(request, send))?;
+        self.send.send(SeedMessage::RvcRequest(request, send)).map_err(|_| RvcError::Timeout)?;
 
-        Ok(recv.await?)
+        recv.await.map_err(|_| RvcError::Timeout)
     }
 }
 
@@ -101,7 +102,7 @@ impl LocalSeedVc {
                     match msg {
                         Some(msg) => match self.handle_message(msg).await {
                             Ok(_) => {}
-                            Err(RvcError::Timeout(_)) => {
+                            Err(RvcError::Timeout) => {
                                 tracing::warn!("SeedVc timed out. Assuming failed state, restarting");
                                 // Something went wrong in our underlying state
                                 self.state.kill_state().await?;

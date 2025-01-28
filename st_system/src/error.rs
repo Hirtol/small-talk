@@ -8,6 +8,10 @@ error_set::error_set! {
     GameSessionError = {
         #[display("A line was incorrectly generated")]
         IncorrectGeneration,
+        #[display("The given text contained invalid characters for TTS: {txt}")]
+        InvalidText {
+            txt: String,
+        },
     } || VoiceManagerError || RvcError || EmotionError;
 
     VoiceManagerError = {
@@ -24,11 +28,17 @@ error_set::error_set! {
 
     RvcError = {
         #[display("Generation timeout, perhaps you are using a model that is too big")]
-        Timeout(Elapsed),
+        Timeout,
     } || EyreError;
 
     EyreError = {
         #[display("Internal error, please submit a bug report: {0}")]
         Other(eyre::Error)
     };
+}
+
+impl From<Elapsed> for RvcError {
+    fn from(_: Elapsed) -> Self {
+        RvcError::Timeout
+    }
 }
