@@ -46,6 +46,6 @@ toml = "0.8"
 
 # ML
 st_ml = { path = "../st_ml", features = ["cuda"] }
+st_system = {path = "../st_system"}
 st_http = { path = "../st_http" }
-libloading = "0.8.5"
 hound = { version = "3.5.1" }

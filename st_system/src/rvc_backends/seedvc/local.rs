@@ -149,7 +149,7 @@ impl LocalSeedVc {
                     result: RvcResult::Wav(rvc_response),
                 });
 
-                tracing::trace!(?took, "Finished handling of TTS request");
+                tracing::trace!(?took, "Finished handling of RVC request");
             }
         }
         Ok(())

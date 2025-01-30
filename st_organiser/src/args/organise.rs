@@ -30,36 +30,6 @@ pub struct OrganiseCommand {
     destination: String,
 }
 
-pub struct ExternalWhisperLib {
-    whisper_create: libloading::Symbol<'static, unsafe extern "C" fn(*const c_char) -> *mut c_void>,
-    whisper_parse: libloading::Symbol<'static, unsafe extern "C" fn(*mut c_void, *const i16, usize) -> CString>,
-    whisper_free: libloading::Symbol<'static, unsafe extern "C" fn(*const c_void)>,
-}
-
-impl ExternalWhisperLib {
-    pub fn new(path: &str) -> eyre::Result<ExternalWhisperLib> {
-        unsafe {
-            let whisper_lib = libloading::Library::new(path)?;
-            let whisper_create: libloading::Symbol<unsafe extern "C" fn(*const c_char) -> *mut c_void> =
-                whisper_lib.get(b"create_whisper")?;
-            let whisper_parse: libloading::Symbol<unsafe extern "C" fn(*mut c_void, *const i16, usize) -> CString> =
-                whisper_lib.get(b"parse_tokens")?;
-            let whisper_free: libloading::Symbol<unsafe extern "C" fn(*const c_void)> =
-                whisper_lib.get(b"free_whisper")?;
-
-            let out = ExternalWhisperLib {
-                whisper_create: std::mem::transmute(whisper_create),
-                whisper_parse: std::mem::transmute(whisper_parse),
-                whisper_free: std::mem::transmute(whisper_free),
-            };
-
-            // We can just forget it to make them static
-            std::mem::forget(whisper_lib);
-            Ok(out)
-        }
-    }
-}
-
 impl OrganiseCommand {
     #[tracing::instrument(skip_all, fields(self.sample_path))]
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
@@ -112,9 +82,6 @@ impl OrganiseCommand {
         let whisper_path = &config.dirs.whisper_model;
         let mut whisper = st_ml::stt::WhisperTranscribe::new(whisper_path, 12)?;
 
-        // let cfg = WhisperConfigBuilder::default().language("en".to_string()).prefix("".to_string()).build()?;
-        // let faster_whisper = faster_whisper_rs::WhisperModel::new("distil-small.en".to_string(), "cuda".to_string(), "int8_float16".to_string(), cfg).unwrap();
-
         let total_samples_to_process = queue.values().map(|d| d.len()).sum::<usize>();
 
         tracing::info!(total_samples_to_process, "Will process samples");
@@ -138,7 +105,6 @@ impl OrganiseCommand {
                         continue;
                     }
 
-                    // let full_text = faster_whisper.transcribe(sample.to_str().context("Fail")?.to_string()).unwrap().to_string();
                     whisper.transcribe_file(&sample)?
                 };
 

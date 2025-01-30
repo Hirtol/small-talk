@@ -109,10 +109,7 @@ impl GameQueueActor {
         if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
             return Ok(response);
         }
-        // TODO: Probably just make `line` an ASCII string, parsing over validation and all that.
-        if !voice_line.line.is_ascii() {
-            return Err(GameSessionError::InvalidText {txt: voice_line.line})
-        }
+
         tracing::debug!("No cache available, requesting from TTS");
         // If we want to use RVC we'll try and warm it up before the TTS request to save time
         if let Some(post) = &voice_line.post {
@@ -265,7 +262,6 @@ impl GameQueueActor {
                 }
                 RvcResult::Stream => unimplemented!("Streams are not yet supported"),
             }
-            tracing::debug!(?out.gen_time, "Finished Rvc")
         }
 
         let took = timer.elapsed();
