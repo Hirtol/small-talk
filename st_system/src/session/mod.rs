@@ -32,7 +32,7 @@ type GameResult<T> = std::result::Result<T, GameSessionError>;
 
 mod queue_actor;
 mod order_channel;
-mod linecache;
+pub mod linecache;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {
@@ -198,7 +198,7 @@ impl GameTts {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct GameData {
+pub struct GameData {
     /// The name of the game for which this data is associated.
     game_name: String,
     /// A mapping from character names to their assigned voice references.
@@ -210,7 +210,7 @@ struct GameData {
 }
 
 impl GameData {
-    async fn create_or_load_from_file(
+    pub async fn create_or_load_from_file(
         game_name: &str,
         config: &TtsSystemConfig,
     ) -> eyre::Result<(GameData, LineCache)> {
@@ -221,7 +221,7 @@ impl GameData {
         }
     }
 
-    async fn create(game_name: &str, config: &TtsSystemConfig) -> eyre::Result<(GameData, LineCache)> {
+    pub async fn create(game_name: &str, config: &TtsSystemConfig) -> eyre::Result<(GameData, LineCache)> {
         let data = GameData {
             game_name: game_name.into(),
             character_map: Default::default(),
@@ -237,7 +237,7 @@ impl GameData {
         Ok((data, Default::default()))
     }
 
-    async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache)> {
+    pub async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache)> {
         let dir = conf.game_dir(game_name);
         let game_data = tokio::fs::read(dir.join(CONFIG_NAME)).await?;
         let data = serde_json::from_slice(&game_data)?;
@@ -250,11 +250,11 @@ impl GameData {
     }
 }
 
-struct GameSharedData {
-    config: Arc<TtsSystemConfig>,
-    voice_manager: Arc<VoiceManager>,
-    game_data: GameData,
-    line_cache: Arc<Mutex<LineCache>>,
+pub struct GameSharedData {
+    pub line_cache: Arc<Mutex<LineCache>>,
+    pub config: Arc<TtsSystemConfig>,
+    pub voice_manager: Arc<VoiceManager>,
+    pub game_data: GameData,
 }
 
 impl GameSharedData {
@@ -277,7 +277,7 @@ impl GameSharedData {
                 .or_default()
                 .get(&voice_line.line)
             {
-                let target_voice_file = self.line_cache_path().join(&voice_to_use.name).join(file_name);
+                let target_voice_file = self.lines_voice_path(&voice_to_use).join(file_name);
 
                 return Ok(Some(TtsResponse {
                     file_path: target_voice_file,
@@ -403,7 +403,7 @@ impl GameSharedData {
     }
 
     /// Sync function as we can't do async writes to serde writers
-    async fn save_cache(&self) -> eyre::Result<()> {
+    pub async fn save_cache(&self) -> eyre::Result<()> {
         let target_dir = self.line_cache_path();
         let json_file = target_dir.join(LINES_NAME);
         tokio::fs::create_dir_all(&target_dir).await?;
@@ -413,11 +413,16 @@ impl GameSharedData {
     }
 
     /// Serialize all variable state (such as character assignments) to disk.
-    async fn save_state(&self) -> eyre::Result<()> {
+    pub async fn save_state(&self) -> eyre::Result<()> {
         let config_save = self.config.game_dir(&self.game_data.game_name).join(CONFIG_NAME);
         let writer = std::io::BufWriter::new(std::fs::File::create(config_save)?);
 
         Ok(serde_json::to_writer_pretty(writer, &self.game_data)?)
+    }
+
+    /// Returns the path to the directory containing all spoken dialogue by the given [VoiceReference]
+    pub fn lines_voice_path(&self, voice: &VoiceReference) -> PathBuf {
+        self.line_cache_path().join(&voice.name)
     }
 
     fn line_cache_path(&self) -> PathBuf {

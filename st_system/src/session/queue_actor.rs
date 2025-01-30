@@ -280,7 +280,7 @@ impl GameQueueActor {
         line: VoiceLine,
         response: BackendTtsResponse,
     ) -> eyre::Result<TtsResponse> {
-        let target_dir = self.data.line_cache_path().join(&voice.name);
+        let target_dir = self.data.lines_voice_path(&voice);
         tokio::fs::create_dir_all(&target_dir).await?;
 
         match response.result {
