@@ -44,6 +44,8 @@ toml = "0.8"
 rodio = "0.20.1"
 wavers.workspace = true
 ebur128 = "0.1.10"
+vorbis_rs = "0.5.5"
+
 
 # ML
 st_ml = {path = "../st_ml", features = ["cuda"]}

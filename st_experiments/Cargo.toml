@@ -36,6 +36,7 @@ wavers.workspace = true
 ebur128 = "0.1.10"
 fon = { git = "https://github.com/ardaku/fon" }
 fundsp = "0.20.0"
+vorbis_rs = "0.5.5"
 
 serde.workspace = true
 serde_json.workspace = true

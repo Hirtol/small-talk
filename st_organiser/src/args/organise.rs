@@ -33,7 +33,7 @@ pub struct OrganiseCommand {
 impl OrganiseCommand {
     #[tracing::instrument(skip_all, fields(self.sample_path))]
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
-        let mut voice_man = VoiceManager::new(config.clone());
+        let mut voice_man = VoiceManager::new(config.dirs.clone());
 
         let destination = if self.destination == "global" {
             VoiceDestination::Global
@@ -95,16 +95,6 @@ impl OrganiseCommand {
                     tracing::trace!("Found existing transcription, using it instead of Whisper");
                     std::fs::read_to_string(existing_transcript)?
                 } else {
-                    let data = hound::WavReader::open(&sample)?
-                        .into_samples::<i16>()
-                        .flatten()
-                        .collect_vec();
-
-                    if data.is_empty() {
-                        tracing::error!("Empty sample set");
-                        continue;
-                    }
-
                     whisper.transcribe_file(&sample)?
                 };
 

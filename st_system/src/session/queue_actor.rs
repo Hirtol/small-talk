@@ -258,7 +258,7 @@ impl GameQueueActor {
                     if should_normalise {
                         postprocessing::loudness_normalise(&mut data.samples, data.sample_rate, data.n_channels);
                     }
-                    data.write_to_file(&destination_path)?;
+                    data.write_to_wav_file(&destination_path)?;
                 }
                 RvcResult::Stream => unimplemented!("Streams are not yet supported"),
             }
@@ -287,6 +287,7 @@ impl GameQueueActor {
             TtsResult::File(temp_path) => {
                 // TODO: Perhaps think of a better method to naming the generated lines
                 let current_time = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
+
                 let file_name = format!("{}.wav", current_time);
                 let target_voice_file = target_dir.join(&file_name);
 

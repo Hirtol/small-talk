@@ -1,6 +1,8 @@
+use crate::args::compress::CompressCommand;
 use crate::args::organise::OrganiseCommand;
 
 pub mod organise;
+pub mod compress;
 
 #[derive(clap::Parser, Debug)]
 #[clap(version, about)]
@@ -15,4 +17,8 @@ pub enum SubCommands {
     #[clap(arg_required_else_help(true))]
     #[clap(alias = "o")]
     Organise(OrganiseCommand),
+    /// Compress the generated lines to OGG Vorbis
+    #[clap(arg_required_else_help(true))]
+    #[clap(alias = "c")]
+    Compress(CompressCommand)
 }

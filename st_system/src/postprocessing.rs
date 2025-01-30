@@ -1,7 +1,11 @@
 //! Audio post-processing for generated TTS files.
 
 use std::fmt::{Debug, Formatter};
+use std::io::BufWriter;
+use std::num::{NonZeroU32, NonZeroU8};
 use std::path::Path;
+use eyre::ContextCompat;
+use itertools::Itertools;
 use wavers::Wav;
 
 /// Remove leading/trailing silences in the given audio.
@@ -92,12 +96,52 @@ impl AudioData {
     pub fn new(wav: &mut Wav<f32>) -> eyre::Result<Self> {
         Ok(Self {
             samples: wav.read()?.as_ref().to_vec(),
-            n_channels: wav.n_channels() as u16,
+            n_channels: wav.n_channels(),
             sample_rate: wav.sample_rate() as u32,
         })
     }
 
-    pub fn write_to_file(&self, destination: &Path) -> eyre::Result<()> {
+    pub fn write_to_wav_file(&self, destination: &Path) -> eyre::Result<()> {
         Ok(wavers::write(destination, &self.samples, self.sample_rate as i32, self.n_channels)?)
+    }
+
+    /// Write the current [AudioData] to an OGG Vorbis file at the given path.
+    ///
+    /// # Arguments
+    /// - `destination` - Path for the OGG Vorbis file, should have an `.ogg` extension.
+    /// - `quality` - Float in the range `[-0.2, 1.0]`, `0.6` recommended
+    pub fn write_to_ogg_vorbis(&self, destination: &Path, quality: f32) -> eyre::Result<()> {
+        use vorbis_rs::*;
+        const VORBIS_BLOCK_LEN: usize = 4096;
+        let mut write_target = BufWriter::new(std::fs::File::create(destination)?);
+
+        let mut encoder = VorbisEncoderBuilder::new(
+            NonZeroU32::new(self.sample_rate).context("Need non-zero sample rate")?,
+            NonZeroU8::new(self.n_channels as u8).context("Need non-zero channels")?,
+            &mut write_target
+        )?;
+        encoder.bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+            target_quality: quality
+        });
+        let mut encoder = encoder.build()?;
+
+        let mut output_buffers = vec![Vec::new(); self.n_channels as usize];
+        for chunk in &self.samples.iter().chunks(self.n_channels as usize) {
+            let mut should_encode = false;
+            for (sample, target) in chunk.zip(output_buffers.iter_mut()) {
+                target.push(*sample);
+                should_encode = target.len() >= VORBIS_BLOCK_LEN;
+            }
+
+            if should_encode {
+                encoder.encode_audio_block(&output_buffers)?;
+                output_buffers.iter_mut().for_each(|v| v.clear());
+            }
+        }
+        // Encode the last few samples
+        encoder.encode_audio_block(&output_buffers)?;
+        encoder.finish()?;
+
+        Ok(())
     }
 }

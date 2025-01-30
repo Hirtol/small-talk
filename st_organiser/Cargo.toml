@@ -48,4 +48,6 @@ toml = "0.8"
 st_ml = { path = "../st_ml", features = ["cuda"] }
 st_system = {path = "../st_system"}
 st_http = { path = "../st_http" }
+wavers.workspace = true
+rayon = "1.10.0"
 hound = { version = "3.5.1" }

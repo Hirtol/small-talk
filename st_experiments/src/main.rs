@@ -13,9 +13,6 @@ fn main() -> eyre::Result<()> {
     // let device = NdArrayDevice::default();
     // let mut classifier: BasicEmotionClassifier<Back> = BasicEmotionClassifier::new("models/text_emotion_classifier/classifier_head", "models/text_emotion_classifier/ggml-model-Q4_k.gguf", device).unwrap();
     // whisper::main()
-    let out = rvc::main();
-
-    println!("OUT: {:?}", out);
-
-    out
+    // let out = rvc::main();
+    audio::main()
 }
