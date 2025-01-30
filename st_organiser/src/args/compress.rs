@@ -34,7 +34,7 @@ impl CompressCommand {
 
         for (voice, lines) in &mut lock.voice_to_line {
             if self.filter_exclude.as_ref().map(|filter| voice.name.contains(filter)).unwrap_or_default() {
-                tracing::info!(?voice, "Skipping voice as it matched the exclude filter");
+                tracing::debug!(?voice, "Skipping voice as it matched the exclude filter");
                 continue
             }
 

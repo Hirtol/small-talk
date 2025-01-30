@@ -11,11 +11,16 @@ use st_system::tts_backends::alltalk::AllTalkConfig;
 
 pub type SharedConfig = Arc<Config>;
 
-static CONFIG_FILE: &str = "config.toml";
+static CONFIG_FILE: &str = "st_config.toml";
 
 /// Initialise the config file.
 ///
 /// Creates a new config file if it doesn't yet exist, otherwise loads the existing one.
+///
+/// It follows a simple priority order (from most to least important, which will determine overrides):
+/// 1. Environment variables prefixed by `smalltalk`
+/// 2. Local config file (same execution directory as process)
+/// 3. Standard config file, located in some `appdata` directory.
 pub fn initialise_config() -> eyre::Result<Config> {
     let c_path = get_full_config_path();
 
@@ -25,6 +30,7 @@ pub fn initialise_config() -> eyre::Result<Config> {
 
     let c = config::Config::builder()
         .add_source(config::File::with_name(&c_path.to_string_lossy()).required(true))
+        .add_source(config::File::with_name(CONFIG_FILE).required(false))
         .add_source(config::Environment::with_prefix("smalltalk"))
         .build()?;
     
