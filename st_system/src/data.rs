@@ -18,7 +18,7 @@ pub struct TtsResponse {
     pub voice_used: Voice,
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct VoiceLine {
     pub line: String,
     /// The person who ought to voice the line
@@ -30,7 +30,7 @@ pub struct VoiceLine {
     pub post: Option<PostProcessing>
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct PostProcessing {
     /// Verify whether a voice line was generated correctly by running Whisper on it.
     ///
@@ -46,7 +46,7 @@ pub struct PostProcessing {
     pub rvc: Option<RvcOptions>
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct RvcOptions {
     pub model: RvcModel,
     /// Whether to prefer high-quality (`true`) or faster conversion (`false`)

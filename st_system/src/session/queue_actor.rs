@@ -13,6 +13,7 @@ use eyre::{ContextCompat, WrapErr};
 use path_abs::PathOps;
 use rand::{prelude::IteratorRandom, thread_rng};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
+use itertools::Itertools;
 use tracing::Instrument;
 
 pub type SingleRequest = (
@@ -35,6 +36,9 @@ pub(super) struct GameQueueActor {
 impl GameQueueActor {
     #[tracing::instrument(skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
+        // Ignore failed reads.
+        let _ = self.read_queue().await;
+
         loop {
             tokio::select! {
                 biased;
@@ -52,6 +56,7 @@ impl GameQueueActor {
 
         self.data.save_cache().await?;
         self.data.save_state().await?;
+        self.save_queue().await?;
 
         Ok(())
     }
@@ -84,6 +89,7 @@ impl GameQueueActor {
                     tracing::trace!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
                     self.data.save_cache().await?;
                     self.data.save_state().await?;
+                    self.save_queue().await?;
                     eyre::bail!(e)
                 }
             },
@@ -332,4 +338,24 @@ impl GameQueueActor {
             TtsResult::Stream => unimplemented!("Implement stream handling (still want to cache the output as well!)"),
         }
     }
+
+    async fn save_queue(&self) -> eyre::Result<()> {
+        let q_path = self.data.config.game_dir(&self.data.game_data.game_name).join(QUEUE_DATA);
+        let to_serialize = self.queue.modify_contents(|data| data.iter().map(|v| v.0).cloned().collect_vec()).await;
+
+        let writer = std::io::BufWriter::new(std::fs::File::create(q_path)?);
+        Ok(serde_json::to_writer_pretty(writer, &to_serialize)?)
+    }
+
+    async fn read_queue(&self) -> eyre::Result<()> {
+        let q_path = self.data.config.game_dir(&self.data.game_data.game_name).join(QUEUE_DATA);
+
+        self.queue.modify_contents(|data| {
+            let to_save: Vec<VoiceLine> = serde_json::from_slice(&std::fs::read(q_path)?)?;
+            data.extend(to_save.into_iter().map(|v| (v, None, tracing::Span::current())));
+            Ok::<_, eyre::Error>(())
+        }).await
+    }
 }
+
+const QUEUE_DATA: &str = "queue_backup.json";

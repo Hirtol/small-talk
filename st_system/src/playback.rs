@@ -120,7 +120,8 @@ impl PlaybackEngine {
                 else => break
             }
         }
-        tracing::trace!("Stopping PlaybackEngine as channel was closed");
+
+        tracing::trace!("Stopping PlaybackEngine for unknown reason");
 
         Ok(())
     }

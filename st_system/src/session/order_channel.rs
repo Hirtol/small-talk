@@ -61,6 +61,12 @@ impl<T> OrderedReceiver<T> {
         q.pop_front()
     }
 
+    /// Clone the internal contents and return
+    pub(crate) async fn modify_contents<O>(&self, func: impl FnOnce(&mut VecDeque<T>) -> O) -> O {
+        let mut q = self.queue.lock().await;
+        func(&mut q)
+    }
+
     /// Returns the number of items in the queue.
     pub async fn len(&self) -> usize {
         self.queue.lock().await.len()
