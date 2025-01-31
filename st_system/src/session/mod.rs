@@ -133,7 +133,7 @@ impl GameSessionHandle {
         self.game_tts.add_all_to_queue(items).await
     }
 
-    /// Request a single voice line with the highest priority.
+    /// Request a single voice line
     ///
     /// If this future is dropped prematurely the request will still be handled.
     /// This will be done even if this future is _not_ dropped.
@@ -167,11 +167,28 @@ impl GameTts {
             .await
     }
 
+    /// Request a single voice line with normal priority.
+    ///
+    /// Returns the completed request.
+    pub async fn add_to_queue(&self, item: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
+        if item.force_generate {
+            self.data.invalidate_cache_line(&item).await?;
+        }
+        let (snd, rcv) = tokio::sync::oneshot::channel();
+
+        self.queue
+            .change_queue(|queue| {
+                    queue.push_front((item, Some(snd), tracing::Span::current()));
+            })
+            .await?;
+
+        Ok(rcv.await?)
+    }
+
     /// Request a single voice line with the highest priority.
     ///
-    /// If this future is dropped prematurely the request will still be handled, and the response will be sent on
-    /// the [Self::broadcast_handle]. This will be done even if this future is _not_ dropped.
-    #[tracing::instrument(skip(self))]
+    /// If a different request gets posted any previous request will be dropped!
+    #[tracing::instrument(skip(self, request))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
         let (snd, rcv) = tokio::sync::oneshot::channel();
 
@@ -180,6 +197,9 @@ impl GameTts {
         Ok(rcv.await?)
     }
 
+    /// Request a single voice line with the highest priority.
+    ///
+    /// If a different request gets posted before this `request` is completed then this `request` will be dropped!
     #[tracing::instrument(skip(self))]
     pub async fn request_tts_with_channel(&self, request: VoiceLine, send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>) -> eyre::Result<()> {
         if request.force_generate {
@@ -189,8 +209,11 @@ impl GameTts {
          if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
             let _ = send.send(Arc::new(tts_response));
         } else {
-            // Otherwise send a priority request to our queue
-            self.priority.change_queue(move |queue| queue.push_front((request, Some(send), tracing::Span::current()))).await?;
+            // Otherwise send a priority request to our queue, clear any previous urgent requests.
+            self.priority.change_queue(move |queue| {
+                queue.clear();
+                queue.push_front((request, Some(send), tracing::Span::current()))
+            }).await?;
         };
 
         Ok(())

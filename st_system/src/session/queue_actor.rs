@@ -63,6 +63,10 @@ impl GameQueueActor {
                     tracing::warn!("Ignoring request which requested non-existent voice: {voice}");
                     Ok(())
                 }
+                GameSessionError::NoVoiceSamples { voice } => {
+                    tracing::warn!("Ignoring request which requested voice with no samples: {voice}");
+                    Ok(())
+                }
                 GameSessionError::IncorrectGeneration => {
                     tracing::warn!("Skipping line request after too many generation failure");
                     Ok(())
@@ -140,8 +144,13 @@ impl GameQueueActor {
                 voice.random_sample()
             })?,
             _ => voice.try_emotion_sample(emotion)?
-                .next().context("No voice sample available")?
-                .into_iter().choose(&mut thread_rng()).context("No sample")?,
+                .next()
+                .ok_or_else(|| GameSessionError::NoVoiceSamples {
+                        voice: voice.reference.name,
+                })?
+                .into_iter()
+                .choose(&mut thread_rng())
+                .context("No sample")?,
         };
 
         let sample_path = sample.sample.clone();

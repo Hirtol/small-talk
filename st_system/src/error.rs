@@ -18,6 +18,10 @@ error_set::error_set! {
         #[display("Requested voice: '{voice}' does not exist")]
         VoiceDoesNotExist {
             voice: String,
+        },
+        #[display("Requested voice: '{voice}' has a directory, but no voice samples exist")]
+        NoVoiceSamples {
+            voice: String,
         }
     };
 

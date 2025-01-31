@@ -25,6 +25,13 @@ impl VoiceManager {
     }
 
     pub fn get_voice(&self, voice: VoiceReference) -> Result<FsVoiceData, VoiceManagerError> {
+        // Necessary guard, if we don't have this we'd refer to the root `voice` directory!
+        if voice.name.is_empty() {
+            return Err(VoiceManagerError::VoiceDoesNotExist {
+                voice: voice.name,
+            });
+        }
+
         let path = voice.location.to_path(&self.conf).join(&voice.name);
 
         if path.exists() {
