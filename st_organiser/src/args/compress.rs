@@ -45,21 +45,37 @@ impl CompressCommand {
 
             tracing::info!(?voice, "Compressing voice lines");
 
-            lines.iter_mut()
+            if let Err(e) = lines.iter_mut()
                 .par_bridge()
                 .filter(|(_, file)| file.ends_with(".wav"))
                 .try_for_each(|(_, file)| {
                     let wav_path = voice_line_dir.join(&file);
+                    let backup_wav = wav_path.file_name().expect("Impossible");
+                    let ogg_path = wav_path.with_extension("ogg");
+
+                    // In case the process was interrupted
+                    if ogg_path.exists() {
+                        *file = ogg_path.file_name().context("impossible")?.to_string_lossy().into();
+                        let _ = std::fs::rename(&wav_path, backup_dir.join(backup_wav));
+                        return Ok(());
+                    }
+                    if !wav_path.exists() {
+                        return Err(eyre::eyre!("{wav_path:?} does not exist"));
+                    }
+
                     let mut wav_file = wavers::Wav::<f32>::from_path(&wav_path)?;
                     let audio_data = st_system::postprocessing::AudioData::new(&mut wav_file)?;
-                    let ogg_path = wav_path.with_extension("ogg");
+
                     audio_data.write_to_ogg_vorbis(&ogg_path, 0.6)?;
                     *file = ogg_path.file_name().context("impossible")?.to_string_lossy().into();
 
-                    let backup_wav = wav_path.file_name().expect("Impossible");
                     std::fs::rename(&wav_path, backup_dir.join(backup_wav))?;
                     Ok::<_, eyre::Error>(())
-                })?;
+                }) {
+                drop(lock);
+                shared_data.save_cache().await?;
+                return Err(e);
+            }
         }
 
         drop(lock);
