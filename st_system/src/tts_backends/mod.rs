@@ -4,27 +4,31 @@ use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use st_ml::stt::WhisperTranscribe;
+use crate::error::TtsError;
 use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
 use crate::timeout::DroppableState;
-use crate::TtsModel;
+use crate::data::TtsModel;
 use crate::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
 
+pub type Result<T> = std::result::Result<T, TtsError>;
+
 /// The collection of TTS backend handles.
 #[derive(Clone)]
-pub struct TtsBackend {
-    pub xtts: LocalAllTalkHandle,
-    pub e2: LocalAllTalkHandle,
+pub struct TtsCoordinator {
+    pub xtts: Option<LocalAllTalkHandle>,
     whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
     whisper_path: PathBuf,
 }
 
-impl TtsBackend {
-    pub fn new(xtts_all_talk: LocalAllTalkHandle, f5_all_talk: LocalAllTalkHandle, whisper_path: PathBuf) -> Self {
+impl TtsCoordinator {
+    /// Create a new [TtsCoordinator]
+    ///
+    /// If no TtsBackend model is provided all requests will return with [TtsError::ModelNotInitialised].
+    pub fn new(xtts_all_talk: Option<LocalAllTalkHandle>, whisper_path: PathBuf) -> Self {
         Self {
             xtts: xtts_all_talk,
-            e2: f5_all_talk,
             whisper: Arc::new(Mutex::new(None)),
             whisper_path,
         }
@@ -32,13 +36,15 @@ impl TtsBackend {
 
     /// Send a TTS request to the given model.
     #[tracing::instrument(skip(self))]
-    pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
+    pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> Result<BackendTtsResponse> {
         match model {
-            TtsModel::E2 => {
-                self.e2.submit_tts_request(req).await
-            }
             TtsModel::Xtts => {
-                self.xtts.submit_tts_request(req).await
+                let Some(xtts) = &self.xtts else {
+                    return Err(TtsError::ModelNotInitialised {
+                        model
+                    })
+                };
+                Ok(xtts.submit_tts_request(req).await?)
             }
         }
     }
@@ -49,7 +55,7 @@ impl TtsBackend {
     /// # Returns
     ///
     /// A score in the range [0..1], where a higher score is a closer match.
-    pub async fn verify_prompt(&self, wav_file: impl Into<PathBuf>, original_prompt: &str) -> eyre::Result<f32> {
+    pub async fn verify_prompt(&self, wav_file: impl Into<PathBuf>, original_prompt: &str) -> Result<f32> {
         let whisp_clone = self.whisper.clone();
         let wav_file = wav_file.into();
         let whisp_path = self.whisper_path.clone();
@@ -67,7 +73,7 @@ impl TtsBackend {
                 }
                 Some(model) => model.transcribe_file(wav_file)
             }
-        }).await??;
+        }).await.map_err(|e| eyre::eyre!(e))??;
         // Can cause problems if we don't remove these for short quotes.
         let original_without_quotes = original_prompt.trim_start_matches('"').trim_end_matches('"');
         let leven = strsim::levenshtein(&output, original_without_quotes);

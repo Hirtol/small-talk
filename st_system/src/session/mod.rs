@@ -15,14 +15,15 @@ use tokio::sync::mpsc::error::TrySendError;
 use linecache::LineCache;
 use order_channel::OrderedSender;
 use queue_actor::{GameQueueActor, SingleRequest};
-use crate::{CharacterName, CharacterVoice, Gender, PostProcessing, TtsModel, TtsResponse, TtsVoice, VoiceLine};
+use crate::{CharacterName, CharacterVoice, Gender, PostProcessing, TtsResponse, TtsVoice, VoiceLine};
 use crate::config::TtsSystemConfig;
+use crate::data::TtsModel;
 use crate::emotion::EmotionBackend;
 use crate::error::GameSessionError;
 use crate::playback::PlaybackEngineHandle;
 use crate::postprocessing::AudioData;
 use crate::rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult};
-use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsBackend, TtsResult};
+use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult};
 use crate::voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference};
 
 const CONFIG_NAME: &str = "config.json";
@@ -46,7 +47,7 @@ impl GameSessionHandle {
     pub async fn new(
         game_name: &str,
         voice_man: Arc<VoiceManager>,
-        tts: TtsBackend,
+        tts: TtsCoordinator,
         rvc: RvcBackend,
         emotion: EmotionBackend,
         config: Arc<TtsSystemConfig>,

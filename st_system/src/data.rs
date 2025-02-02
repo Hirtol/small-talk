@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::TtsModel;
 use crate::voice_manager::VoiceReference;
 
 /// Internal name for a particular voice.
@@ -81,4 +80,9 @@ pub struct CharacterVoice {
 pub enum Gender {
     Male,
     Female,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
+pub enum TtsModel {
+    Xtts,
 }

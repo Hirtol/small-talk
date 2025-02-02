@@ -1,5 +1,5 @@
 use crate::{
-    TtsModel, TtsResponse, VoiceLine,
+    TtsResponse, VoiceLine,
 };
 use eyre::ContextCompat;
 use futures::{future::BoxFuture, FutureExt};
@@ -14,6 +14,7 @@ use std::{
 use crate::session::{GameSessionHandle, GameTts};
 use crate::voice_manager::VoiceManager;
 use tokio::sync::broadcast;
+use crate::data::TtsModel;
 
 #[derive(Clone)]
 pub struct PlaybackEngineHandle {

@@ -1,10 +1,9 @@
 use tokio::time::error::Elapsed;
+use crate::TtsModel;
 
-pub type Result<T> = std::result::Result<T, TtsError>;
+pub type Result<T> = std::result::Result<T, GameSessionError>;
 
 error_set::error_set! {
-    TtsError = GameSessionError;
-
     GameSessionError = {
         #[display("A line was incorrectly generated")]
         IncorrectGeneration,
@@ -12,7 +11,7 @@ error_set::error_set! {
         InvalidText {
             txt: String,
         },
-    } || VoiceManagerError || RvcError || EmotionError;
+    } || VoiceManagerError || RvcError || EmotionError || TtsError;
 
     VoiceManagerError = {
         #[display("Requested voice: '{voice}' does not exist")]
@@ -24,6 +23,13 @@ error_set::error_set! {
             voice: String,
         }
     };
+
+    TtsError = {
+        #[display("The given TTS model does not have an active provider: {model:?}")]
+        ModelNotInitialised {
+            model: TtsModel,
+        },
+    } || EyreError;
 
     EmotionError = {
         #[display("Error loading model: {0}")]

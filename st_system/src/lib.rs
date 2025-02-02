@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use crate::config::TtsSystemConfig;
 use crate::rvc_backends::RvcBackend;
 use crate::session::GameSessionHandle;
-use crate::tts_backends::{TtsBackend, BackendTtsRequest, BackendTtsResponse};
+use crate::tts_backends::TtsCoordinator;
 use crate::voice_manager::VoiceManager;
 
 pub use crate::data::*;
@@ -31,25 +31,19 @@ pub mod error;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
-pub enum TtsModel {
-    E2,
-    Xtts,
-}
-
 /// Single place collating all active backends of our system.
 pub struct TtsSystem {
     config: Arc<TtsSystemConfig>,
     // We don't use papaya here to prevent race conditions
     sessions: Arc<Mutex<HashMap<String, GameSessionHandle>>>,
     voice_man: Arc<VoiceManager>,
-    tts: TtsBackend,
+    tts: TtsCoordinator,
     rvc: RvcBackend,
     emotion: EmotionBackend,
 }
 
 impl TtsSystem {
-    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsBackend, rvc_backend: RvcBackend, emotion_backend: EmotionBackend) -> Self {
+    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcBackend, emotion_backend: EmotionBackend) -> Self {
         Self {
             emotion: emotion_backend,
             config: config.clone(),

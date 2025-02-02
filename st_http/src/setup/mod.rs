@@ -18,7 +18,7 @@ use st_system::rvc_backends::RvcBackend;
 use st_system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig};
 use st_system::tts_backends::alltalk::AllTalkConfig;
 use st_system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
-use st_system::tts_backends::TtsBackend;
+use st_system::tts_backends::TtsCoordinator;
 
 mod first_time;
 
@@ -43,14 +43,8 @@ impl Application {
             api: config.xtts.alltalk_cfg.clone(),
         };
         let xtts = LocalAllTalkHandle::new(all_talk_cfg)?;
-        let all_talk_cfg = LocalAllTalkConfig {
-            instance_path: config.f5_tts.local_all_talk.clone(),
-            timeout: config.f5_tts.timeout,
-            api: config.f5_tts.alltalk_cfg.clone(),
-        };
-        let f5 = LocalAllTalkHandle::new(all_talk_cfg)?;
 
-        let tts_backend = TtsBackend::new(xtts, f5, config.dirs.whisper_model.clone());
+        let tts_backend = TtsCoordinator::new(Some(xtts), config.dirs.whisper_model.clone());
 
         let mut seedvc_cfg = LocalSeedVcConfig {
             instance_path: config.seed_vc.local_path.clone(),

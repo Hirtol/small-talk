@@ -1,19 +1,20 @@
 use crate::{
+    data::TtsModel,
     emotion::EmotionBackend,
     error::GameSessionError,
     postprocessing,
     postprocessing::AudioData,
     rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult},
     session::{order_channel::OrderedReceiver, GameResult, GameSharedData},
-    tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsBackend, TtsResult},
+    tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
     voice_manager::VoiceReference,
-    PostProcessing, TtsModel, TtsResponse, TtsVoice, VoiceLine,
+    PostProcessing, TtsResponse, TtsVoice, VoiceLine,
 };
 use eyre::{ContextCompat, WrapErr};
+use itertools::Itertools;
 use path_abs::PathOps;
 use rand::{prelude::IteratorRandom, thread_rng};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
-use itertools::Itertools;
 use tracing::Instrument;
 
 pub type SingleRequest = (
@@ -23,7 +24,7 @@ pub type SingleRequest = (
 );
 
 pub(super) struct GameQueueActor {
-    pub tts: TtsBackend,
+    pub tts: TtsCoordinator,
     pub rvc: RvcBackend,
     pub emotion: EmotionBackend,
     pub data: Arc<GameSharedData>,
@@ -84,12 +85,20 @@ impl GameQueueActor {
                     tracing::warn!(?txt, "Received invalid text in request");
                     Ok(())
                 }
+                GameSessionError::ModelNotInitialised { model } => {
+                    tracing::warn!(
+                        ?model,
+                        "A model was requested, but no provider is available to service it"
+                    );
+                    Ok(())
+                }
                 e => {
                     // First persist our data
-                    tracing::trace!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor as notify channel was closed");
+                    tracing::error!(?e, game=?self.data.game_data.game_name, "Stopping GameQueueActor actor due to unknown error");
                     self.data.save_cache().await?;
                     self.data.save_state().await?;
                     self.save_queue().await?;
+                    // Then bail
                     eyre::bail!(e)
                 }
             },
@@ -137,27 +146,15 @@ impl GameQueueActor {
         let emotion = self.emotion.classify_emotion([&voice_line.line])?[0];
         tracing::debug!(?emotion, "Identified emotion in line");
 
-        let sample = match voice_line.model {
-            TtsModel::E2 => voice.try_random_sample(|fs| {
-                // The way alltalk/f5 cut off samples when > 15 seconds in length is, frankly, quite shit.
-                // So the best way of dealing with that is to just ensure we don't have any samples > 15 seconds
-                let Ok(reader) = wavers::Wav::<f32>::from_path(&fs.sample) else {
-                    return false;
-                };
-                reader.duration() < 15
-            }).or_else(|_| {
-                tracing::debug!("Failed to find a sample which matches with < 15 seconds duration, falling back to normal samples");
-                voice.random_sample()
-            })?,
-            _ => voice.try_emotion_sample(emotion)?
-                .next()
-                .ok_or_else(|| GameSessionError::NoVoiceSamples {
-                        voice: voice.reference.name,
-                })?
-                .into_iter()
-                .choose(&mut thread_rng())
-                .context("No sample")?,
-        };
+        let sample = voice
+            .try_emotion_sample(emotion)?
+            .next()
+            .ok_or_else(|| GameSessionError::NoVoiceSamples {
+                voice: voice.reference.name,
+            })?
+            .into_iter()
+            .choose(&mut thread_rng())
+            .context("No sample")?;
 
         let sample_path = sample.sample.clone();
         // TODO: Configurable language
@@ -341,21 +338,34 @@ impl GameQueueActor {
     }
 
     async fn save_queue(&self) -> eyre::Result<()> {
-        let q_path = self.data.config.game_dir(&self.data.game_data.game_name).join(QUEUE_DATA);
-        let to_serialize = self.queue.modify_contents(|data| data.iter().map(|v| &v.0).cloned().collect_vec()).await;
+        let q_path = self
+            .data
+            .config
+            .game_dir(&self.data.game_data.game_name)
+            .join(QUEUE_DATA);
+        let to_serialize = self
+            .queue
+            .modify_contents(|data| data.iter().map(|v| &v.0).cloned().collect_vec())
+            .await;
 
         let writer = std::io::BufWriter::new(std::fs::File::create(q_path)?);
         Ok(serde_json::to_writer_pretty(writer, &to_serialize)?)
     }
 
     async fn read_queue(&self) -> eyre::Result<()> {
-        let q_path = self.data.config.game_dir(&self.data.game_data.game_name).join(QUEUE_DATA);
+        let q_path = self
+            .data
+            .config
+            .game_dir(&self.data.game_data.game_name)
+            .join(QUEUE_DATA);
 
-        self.queue.modify_contents(|data| {
-            let to_save: Vec<VoiceLine> = serde_json::from_slice(&std::fs::read(q_path)?)?;
-            data.extend(to_save.into_iter().map(|v| (v, None, tracing::Span::current())));
-            Ok::<_, eyre::Error>(())
-        }).await
+        self.queue
+            .modify_contents(|data| {
+                let to_save: Vec<VoiceLine> = serde_json::from_slice(&std::fs::read(q_path)?)?;
+                data.extend(to_save.into_iter().map(|v| (v, None, tracing::Span::current())));
+                Ok::<_, eyre::Error>(())
+            })
+            .await
     }
 }
 
