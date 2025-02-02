@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use crate::config::TtsSystemConfig;
-use crate::rvc_backends::RvcBackend;
+use crate::rvc_backends::RvcCoordinator;
 use crate::session::GameSessionHandle;
 use crate::tts_backends::TtsCoordinator;
 use crate::voice_manager::VoiceManager;
@@ -38,12 +38,12 @@ pub struct TtsSystem {
     sessions: Arc<Mutex<HashMap<String, GameSessionHandle>>>,
     voice_man: Arc<VoiceManager>,
     tts: TtsCoordinator,
-    rvc: RvcBackend,
+    rvc: RvcCoordinator,
     emotion: EmotionBackend,
 }
 
 impl TtsSystem {
-    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcBackend, emotion_backend: EmotionBackend) -> Self {
+    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcCoordinator, emotion_backend: EmotionBackend) -> Self {
         Self {
             emotion: emotion_backend,
             config: config.clone(),

@@ -8,24 +8,30 @@ pub mod seedvc;
 
 /// The collection of RVC backend handles.
 #[derive(Clone)]
-pub struct RvcBackend {
-    seed_vc: LocalSeedHandle,
-    seed_vc_hq: LocalSeedHandle,
+pub struct RvcCoordinator {
+    seed_vc: Option<LocalSeedHandle>,
+    seed_vc_hq: Option<LocalSeedHandle>,
 }
 
-impl RvcBackend {
-    pub fn new(seed_vc: LocalSeedHandle, seed_vc_hq: LocalSeedHandle) -> Self {
+impl RvcCoordinator {
+    pub fn new(seed_vc: Option<LocalSeedHandle>, seed_vc_hq: Option<LocalSeedHandle>) -> Self {
         Self {
             seed_vc,
             seed_vc_hq,
         }
     }
 
-    pub async fn prepare_instance(&self, hq: bool) -> eyre::Result<()> {
+    pub async fn prepare_instance(&self, hq: bool) -> Result<(), RvcError> {
         if hq {
-            self.seed_vc_hq.start_instance().await
+            let Some(seed_vc_hq) = self.seed_vc_hq.as_ref() else {
+                return Err(RvcError::RvcNotInitialised)
+            };
+            Ok(seed_vc_hq.start_instance().await?)
         } else {
-            self.seed_vc.start_instance().await
+            let Some(seed_vc) = self.seed_vc.as_ref() else {
+                return Err(RvcError::RvcNotInitialised)
+            };
+            Ok(seed_vc.start_instance().await?)
         }
     }
 
@@ -35,9 +41,15 @@ impl RvcBackend {
     #[tracing::instrument(skip(self))]
     pub async fn rvc_request(&self, req: BackendRvcRequest, high_quality: bool) -> Result<BackendRvcResponse, RvcError> {
         if high_quality {
-            Ok(tokio::time::timeout(Duration::from_secs(40), self.seed_vc_hq.rvc_request(req)).await??)
+            let Some(seed_vc_hq) = self.seed_vc_hq.as_ref() else {
+                return Err(RvcError::RvcNotInitialised)
+            };
+            Ok(tokio::time::timeout(Duration::from_secs(40), seed_vc_hq.rvc_request(req)).await??)
         } else {
-            Ok(tokio::time::timeout(Duration::from_secs(40), self.seed_vc.rvc_request(req)).await??)
+            let Some(seed_vc) = self.seed_vc.as_ref() else {
+                return Err(RvcError::RvcNotInitialised)
+            };
+            Ok(tokio::time::timeout(Duration::from_secs(40), seed_vc.rvc_request(req)).await??)
         }
     }
 }

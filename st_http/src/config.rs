@@ -63,11 +63,9 @@ pub struct Config {
     #[serde(default)]
     pub dirs: Arc<TtsSystemConfig>,
     #[serde(default)]
-    pub xtts: TtsConfig,
+    pub xtts: Option<TtsConfig>,
     #[serde(default)]
-    pub f5_tts: TtsConfig,
-    #[serde(default)]
-    pub seed_vc: RvcConfig,
+    pub seed_vc: Option<RvcConfig>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

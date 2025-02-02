@@ -39,6 +39,8 @@ error_set::error_set! {
     RvcError = {
         #[display("Generation timeout, perhaps you are using a model that is too big")]
         Timeout,
+        #[display("No RVC model was given in the config, or was not available")]
+        RvcNotInitialised
     } || EyreError;
 
     EyreError = {

@@ -4,7 +4,7 @@ use crate::{
     error::GameSessionError,
     postprocessing,
     postprocessing::AudioData,
-    rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult},
+    rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
     session::{order_channel::OrderedReceiver, GameResult, GameSharedData},
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
     voice_manager::VoiceReference,
@@ -25,7 +25,7 @@ pub type SingleRequest = (
 
 pub(super) struct GameQueueActor {
     pub tts: TtsCoordinator,
-    pub rvc: RvcBackend,
+    pub rvc: RvcCoordinator,
     pub emotion: EmotionBackend,
     pub data: Arc<GameSharedData>,
     pub queue: OrderedReceiver<SingleRequest>,
@@ -89,6 +89,12 @@ impl GameQueueActor {
                     tracing::warn!(
                         ?model,
                         "A model was requested, but no provider is available to service it"
+                    );
+                    Ok(())
+                }
+                GameSessionError::RvcNotInitialised => {
+                    tracing::warn!(
+                        "A RVC post-process step was requested, but no provider is available to service it"
                     );
                     Ok(())
                 }

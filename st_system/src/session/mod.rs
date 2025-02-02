@@ -22,7 +22,7 @@ use crate::emotion::EmotionBackend;
 use crate::error::GameSessionError;
 use crate::playback::PlaybackEngineHandle;
 use crate::postprocessing::AudioData;
-use crate::rvc_backends::{BackendRvcRequest, RvcBackend, RvcResult};
+use crate::rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult};
 use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult};
 use crate::voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference};
 
@@ -48,7 +48,7 @@ impl GameSessionHandle {
         game_name: &str,
         voice_man: Arc<VoiceManager>,
         tts: TtsCoordinator,
-        rvc: RvcBackend,
+        rvc: RvcCoordinator,
         emotion: EmotionBackend,
         config: Arc<TtsSystemConfig>,
     ) -> eyre::Result<Self> {
