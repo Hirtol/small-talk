@@ -199,6 +199,7 @@ impl GameQueueActor {
         self.generations_count += 1;
         if self.generations_count > 20 {
             self.generations_count = 0;
+            self.save_queue().await?;
             self.data.save_cache().await?
         }
 
@@ -341,7 +342,7 @@ impl GameQueueActor {
 
     async fn save_queue(&self) -> eyre::Result<()> {
         let q_path = self.data.config.game_dir(&self.data.game_data.game_name).join(QUEUE_DATA);
-        let to_serialize = self.queue.modify_contents(|data| data.iter().map(|v| v.0).cloned().collect_vec()).await;
+        let to_serialize = self.queue.modify_contents(|data| data.iter().map(|v| &v.0).cloned().collect_vec()).await;
 
         let writer = std::io::BufWriter::new(std::fs::File::create(q_path)?);
         Ok(serde_json::to_writer_pretty(writer, &to_serialize)?)
