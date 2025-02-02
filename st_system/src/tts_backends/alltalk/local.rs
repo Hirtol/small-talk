@@ -183,14 +183,19 @@ impl DroppableState for TemporaryState {
             let alltalk_env = path.join("alltalk_environment");
             let conda_env = alltalk_env.join("conda");
             let env_env = alltalk_env.join("env");
+            let conda_bin = env_env.join("bin");
             let python_exe = env_env.join("python.exe");
             let log_file = std::fs::File::create(path.join("small_talk.log"))?;
             let err_log_file = std::fs::File::create(path.join("small_talk_err.log"))?;
+
+            // Modify PATH
+            let new_path = format!("{};{}", conda_bin.to_string_lossy(), std::env::var("PATH")?);
 
             let mut cmd = Command::new(python_exe);
             cmd.envs(std::env::vars());
             cmd.env("CONDA_ROOT_PREFIX", conda_env);
             cmd.env("INSTALL_ENV_DIR", env_env);
+            cmd.env("PATH", new_path);
             cmd.args(["script.py"])
                 .kill_on_drop(true)
                 .current_dir(path)
