@@ -32,13 +32,13 @@ pub struct OrderedSender<T> {
 }
 
 impl<T> OrderedSender<T> {
-    pub async fn change_queue(&self, closure: impl for<'a> FnOnce(&'a mut VecDeque<T>)) -> eyre::Result<()> {
+    pub async fn change_queue<O>(&self, closure: impl for<'a> FnOnce(&'a mut VecDeque<T>) -> O) -> eyre::Result<O> {
         let mut q = self.queue.lock().await;
-        closure(&mut *q);
+        let out = closure(&mut *q);
         // Notify the queue worker that we have added new items
         match self.notify.try_send(()) {
             Err(TrySendError::Closed(_)) => Err(eyre::eyre!("Channel was closed")),
-            _ => Ok(())
+            _ => Ok(out)
         }
     }
 
@@ -50,15 +50,16 @@ impl<T> OrderedSender<T> {
 impl<T> OrderedReceiver<T> {
     /// Receive from the underlying queue, or `await` until a value is available.
     pub async fn recv(&mut self) -> Option<T> {
-        let mut q = self.queue.lock().await;
-        if let Some(value) = q.pop_front() {
-            return Some(value)
+        loop {
+            {
+                let mut q = self.queue.lock().await;
+                if let Some(value) = q.pop_front() {
+                    return Some(value);
+                }
+            }
+            // Wait for notification outside the lock to avoid deadlocks
+            self.notify.recv().await;
         }
-        drop(q);
-        let _ = self.notify.recv().await;
-
-        let mut q = self.queue.lock().await;
-        q.pop_front()
     }
 
     /// Clone the internal contents and return

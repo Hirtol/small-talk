@@ -155,8 +155,6 @@ impl GameTts {
     ///
     /// These items will be prioritised over previous queue items
     pub async fn add_all_to_queue(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
-        // First invalidate all lines which have a `force_generate` flag.
-        self.data.invalidate_cache_lines(items.iter().filter(|v| v.force_generate).cloned().collect()).await?;
         // Reverse iterator to ensure the push_front will leave us with the correct order in the queue
         self.queue
             .change_queue(|queue| {
@@ -172,9 +170,6 @@ impl GameTts {
     ///
     /// Returns the completed request.
     pub async fn add_to_queue(&self, item: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
-        if item.force_generate {
-            self.data.invalidate_cache_line(&item).await?;
-        }
         let (snd, rcv) = tokio::sync::oneshot::channel();
 
         self.queue
@@ -200,21 +195,25 @@ impl GameTts {
 
     /// Request a single voice line with the highest priority.
     ///
-    /// If a different request gets posted before this `request` is completed then this `request` will be dropped!
+    /// Any previous request(s) on the highest priority channel are demoted to back of the regular queue.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts_with_channel(&self, request: VoiceLine, send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>) -> eyre::Result<()> {
-        if request.force_generate {
-            self.data.invalidate_cache_line(&request).await?;
-        }
         // First check if the cache already contains the required data
          if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
             let _ = send.send(Arc::new(tts_response));
         } else {
             // Otherwise send a priority request to our queue, clear any previous urgent requests.
-            self.priority.change_queue(move |queue| {
-                queue.clear();
-                queue.push_front((request, Some(send), tracing::Span::current()))
+            let to_queue = self.priority.change_queue(move |priority| {
+                let old_values = std::mem::take(priority);
+                priority.push_front((request, Some(send), tracing::Span::current()));
+                old_values
             }).await?;
+
+             if !to_queue.is_empty() {
+                 self.queue.change_queue(move |queue| {
+                     queue.extend(to_queue);
+                 }).await?;
+             }
         };
 
         Ok(())
