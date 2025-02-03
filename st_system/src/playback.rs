@@ -143,7 +143,16 @@ impl PlaybackEngine {
                 let session = self.session()?;
                 // Add the items to a generation queue so that playbacks after the current one are quick
                 if !self.current_queue.is_empty() {
-                    let queue_lines = self.current_queue.iter().map(|l| l.line.clone());
+                    let queue_lines = self.current_queue.iter()
+                        .enumerate()
+                        .map(|(i, l)| {
+                            let mut out = l.line.clone();
+                            if i == 0 {
+                                // This will be sent on the priority channel, we don't want to generate it twice!
+                                out.force_generate = false;
+                            }
+                            out
+                    });
                     session.add_all_to_queue(queue_lines.collect()).await?;
                     // As we're preemptively sending this off we should ensure we don't request _another_ regeneration when actually playing this line.
                     self.current_queue
