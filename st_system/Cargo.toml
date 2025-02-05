@@ -29,6 +29,10 @@ chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 
+# Persistence
+# diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+# libsqlite3-sys = { version = "0.31.0", features = ["bundled"] }
+
 # Path Walking
 walkdir = "2.4"
 path_abs = { version = "0.5", default-features = false }
@@ -42,6 +46,7 @@ toml = "0.8"
 
 # rodio for playback!
 rodio = "0.20.1"
+kira = { version = "0.10.2", features = ["ogg"] }
 wavers.workspace = true
 ebur128 = "0.1.10"
 vorbis_rs = "0.5.5"

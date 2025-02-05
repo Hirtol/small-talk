@@ -16,6 +16,7 @@ pub struct ApiTtsRequest {
     pub model: TtsModel,
     /// Force the generation of a new line, even if it already existed in the cache.
     pub force_generate: bool,
+    pub post: Option<PostProcessing>
 }
 
 impl From<ApiTtsRequest> for VoiceLine {

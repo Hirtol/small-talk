@@ -29,7 +29,7 @@ pub struct VoiceLine {
     pub post: Option<PostProcessing>
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, JsonSchema)]
 pub struct PostProcessing {
     /// Verify whether a voice line was generated correctly by running Whisper on it.
     ///
@@ -45,7 +45,7 @@ pub struct PostProcessing {
     pub rvc: Option<RvcOptions>
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize, JsonSchema)]
 pub struct RvcOptions {
     pub model: RvcModel,
     /// Whether to prefer high-quality (`true`) or faster conversion (`false`)
@@ -54,7 +54,6 @@ pub struct RvcOptions {
 
 #[derive(Deserialize, Serialize, Debug, JsonSchema, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum RvcModel {
-    /// Zero-shot RVC model
     SeedVc,
 }
 

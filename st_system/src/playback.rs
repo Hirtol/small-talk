@@ -11,6 +11,12 @@ use std::{
     sync::{Arc, Weak},
     time::Duration,
 };
+use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
+use kira::effect::filter::FilterBuilder;
+use kira::effect::reverb::ReverbBuilder;
+use kira::sound::PlaybackState;
+use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
+use kira::track::{TrackBuilder, TrackHandle};
 use crate::session::{GameSessionHandle, GameTts};
 use crate::voice_manager::VoiceManager;
 use tokio::sync::broadcast;
@@ -25,16 +31,21 @@ impl PlaybackEngineHandle {
     /// Start a new playback engine
     pub async fn new(session: Weak<GameTts>) -> eyre::Result<PlaybackEngineHandle> {
         let (send, recv) = tokio::sync::mpsc::channel(10);
+        let audio_manager = kira::AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
+
         let (stream, stream_handle) = OutputStream::try_default().expect("No output device for audio available");
 
         let engine = PlaybackEngine {
             _output_device: SendCpalStream(stream),
             audio_sink: Sink::try_new(&stream_handle).expect("Failed to initialise audio sink."),
+            audio_manager,
+            current_track: None,
             session_handle: session,
             recv,
             current_request: None,
-            current_volume: 1.0,
+            current_settings: None,
             current_queue: Default::default(),
+            current_sound: None,
         };
         let rt = tokio::runtime::Handle::current();
         // We do blocking IO in the actor, so spawn it on the thread pool.
@@ -75,7 +86,7 @@ impl PlaybackEngineHandle {
 #[derive(Debug, Clone)]
 pub struct PlaybackVoiceLine {
     pub line: VoiceLine,
-    pub volume: Option<f32>,
+    pub playback: Option<PlaybackSettings>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +102,11 @@ pub struct PlaybackEngine {
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
 
     audio_sink: Sink,
-    current_volume: f32,
+    audio_manager: AudioManager<DefaultBackend>,
+    current_track: Option<TrackHandle>,
+    current_sound: Option<StaticSoundHandle>,
+    current_settings: Option<PlaybackSettings>,
+
     current_queue: VecDeque<PlaybackVoiceLine>,
     current_request: Option<tokio::sync::oneshot::Receiver<Arc<TtsResponse>>>,
 }
@@ -161,11 +176,7 @@ impl PlaybackEngine {
 
     #[tracing::instrument(skip(self))]
     async fn handle_tts_sample(&mut self, tts: Arc<TtsResponse>) -> eyre::Result<()> {
-        self.audio_sink.clear();
-        self.audio_sink.set_volume(self.current_volume);
-        self.current_request = None;
-
-        let Ok(file) = File::open(&tts.file_path) else {
+        let Ok(file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
             // We'll just request a regeneration of this line
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
@@ -175,20 +186,20 @@ impl PlaybackEngine {
 
             self.start_playback_request(PlaybackVoiceLine {
                 line: new_line,
-                volume: Some(self.current_volume),
+                playback: self.current_settings.clone()
             }, session).await?;
             return Ok(())
         };
 
-        let audio_file = BufReader::new(file);
-        let source = Decoder::new(audio_file)?;
-        self.audio_sink.append(source);
-        self.audio_sink.play();
+        self.current_request = None;
+        let mut track = self.current_track.as_mut().expect("Invariant violation");
+        self.current_sound = Some(track.play(file)?);
         Ok(())
     }
 
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
-        if self.audio_sink.empty() && self.current_request.is_none() {
+        let has_stopped = self.current_sound.as_ref().map(|s| s.state() == PlaybackState::Stopped).unwrap_or_default();
+        if has_stopped && self.current_request.is_none() {
             if let Some(request) = self.current_queue.pop_front() {
                 self.start_playback_request(request, self.session()?).await?;
             }
@@ -200,7 +211,16 @@ impl PlaybackEngine {
     #[tracing::instrument(skip_all)]
     async fn start_playback_request(&mut self, request: PlaybackVoiceLine, session: Arc<GameTts>) -> eyre::Result<()> {
         let (snd, rcv) = tokio::sync::oneshot::channel();
-        self.current_volume = request.volume.unwrap_or(1.0);
+        let playback_s = request.playback.unwrap_or_default();
+        let mut track = self.audio_manager.add_sub_track(playback_s.construct_track())?;
+        let volume = playback_s.volume.unwrap_or(1.0).max(0.0).min(1.0);
+        let volume_db = Decibels(20.0 * volume.log10());
+
+        track.set_volume(volume_db, Tween::default());
+
+        self.current_sound = None;
+        self.current_track = Some(track);
+        self.current_settings = Some(playback_s);
         tokio::task::spawn(async move { session.request_tts_with_channel(request.line, snd).await });
         self.current_request = Some(rcv);
 
@@ -218,3 +238,49 @@ impl PlaybackEngine {
 // We need this property to make this work as a tokio actor.
 struct SendCpalStream(OutputStream);
 unsafe impl Send for SendCpalStream {}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum PlaybackEnvironment {
+    Outdoors,
+    Indoors,
+    Cave
+}
+/// Large amount of reverb
+/// Modicum of reverb
+/// No applied reverb
+
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct PlaybackSettings {
+    /// The environment of the listener.
+    ///
+    /// Affects the amount of reverb applied
+    pub environment: Option<PlaybackEnvironment>,
+    /// Playback volume, should be in the interval `[0.0, 1.0]`
+    pub volume: Option<f32>
+}
+
+impl PlaybackSettings {
+    /// Create a track based on these playback settings
+    ///
+    /// Applies:
+    /// * Low-pass filter at `16_000` HZ
+    /// * Optional Reverb based on environment
+    fn construct_track(&self) -> TrackBuilder {
+        let mut builder = TrackBuilder::new();
+        builder.add_effect(FilterBuilder::new().cutoff(16_000.));
+        if let Some(env) = self.environment {
+            // Arbitrarily picked based on what sounded decent
+            // Outdoors is equivalent to no reverb at all.
+            let (mix, feedback) = match env {
+                PlaybackEnvironment::Outdoors => (0.0, 0.0),
+                // PlaybackEnvironment::IndoorsSmall => (0.01, 0.1),
+                PlaybackEnvironment::Indoors => (0.03, 0.1),
+                PlaybackEnvironment::Cave => (0.4, 0.6),
+            };
+            builder.add_effect(ReverbBuilder::new().mix(mix).feedback(feedback));
+        }
+
+        builder
+    }
+}
+

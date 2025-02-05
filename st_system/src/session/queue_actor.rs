@@ -100,7 +100,7 @@ impl GameQueueActor {
                 }
                 e => {
                     // First persist our data
-                    tracing::error!(?e, game=?self.data.game_data.game_name, "Stopping GameQueueActor actor due to unknown error");
+                    tracing::error!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor due to unknown error");
                     self.data.save_cache().await?;
                     self.data.save_state().await?;
                     self.save_queue().await?;

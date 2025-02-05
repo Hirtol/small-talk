@@ -13,7 +13,7 @@ use axum::extract::{Path, State};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::VecDeque;
-use st_system::playback::PlaybackVoiceLine;
+use st_system::playback::{PlaybackSettings, PlaybackVoiceLine};
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest(
@@ -82,8 +82,8 @@ fn tts_queue_docs(op: TransformOperation) -> TransformOperation {
 pub struct TtsPlaybackRequest {
     /// The line to request.
     request: ApiTtsRequest,
-    /// Request a volume between [0.0, 1.0] for the playback of this line.
-    volume: Option<f32>,
+    /// Optional playback settings such as volume and environment
+    playback: Option<PlaybackSettings>,
 }
 
 #[tracing::instrument(skip_all)]
@@ -100,7 +100,7 @@ pub async fn tts_playback_start(
                 .into_iter()
                 .map(|api| PlaybackVoiceLine {
                     line: api.request.into(),
-                    volume: api.volume,
+                    playback: api.playback,
                 })
                 .collect(),
         )
