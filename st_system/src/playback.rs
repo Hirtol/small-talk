@@ -33,11 +33,7 @@ impl PlaybackEngineHandle {
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let audio_manager = kira::AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
 
-        let (stream, stream_handle) = OutputStream::try_default().expect("No output device for audio available");
-
         let engine = PlaybackEngine {
-            _output_device: SendCpalStream(stream),
-            audio_sink: Sink::try_new(&stream_handle).expect("Failed to initialise audio sink."),
             audio_manager,
             current_track: None,
             session_handle: session,
@@ -96,12 +92,10 @@ pub enum PlaybackMessage {
 }
 
 pub struct PlaybackEngine {
-    _output_device: SendCpalStream,
     session_handle: Weak<GameTts>,
 
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
 
-    audio_sink: Sink,
     audio_manager: AudioManager<DefaultBackend>,
     current_track: Option<TrackHandle>,
     current_sound: Option<StaticSoundHandle>,
@@ -147,13 +141,17 @@ impl PlaybackEngine {
         match message {
             PlaybackMessage::Stop => {
                 self.current_request = None;
+                self.current_track = None;
+                self.current_sound = None;
+                self.current_settings = None;
                 self.current_queue.clear();
-                self.audio_sink.clear();
             }
             PlaybackMessage::Start(lines) => {
                 // If we start a new line set we first clear out the old one
-                self.audio_sink.clear();
                 self.current_request = None;
+                self.current_track = None;
+                self.current_sound = None;
+                self.current_settings = None;
                 self.current_queue = lines;
                 let session = self.session()?;
 
@@ -234,11 +232,6 @@ impl PlaybackEngine {
     }
 }
 
-// Since we only care about Windows we can safely assume that our audio stream in `cpal` is [Send].
-// We need this property to make this work as a tokio actor.
-struct SendCpalStream(OutputStream);
-unsafe impl Send for SendCpalStream {}
-
 #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum PlaybackEnvironment {
     Outdoors,
@@ -274,7 +267,7 @@ impl PlaybackSettings {
             let (mix, feedback) = match env {
                 PlaybackEnvironment::Outdoors => (0.0, 0.0),
                 // PlaybackEnvironment::IndoorsSmall => (0.01, 0.1),
-                PlaybackEnvironment::Indoors => (0.03, 0.1),
+                PlaybackEnvironment::Indoors => (0.04, 0.1),
                 PlaybackEnvironment::Cave => (0.4, 0.6),
             };
             builder.add_effect(ReverbBuilder::new().mix(mix).feedback(feedback));

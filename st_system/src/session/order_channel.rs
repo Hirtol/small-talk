@@ -58,7 +58,9 @@ impl<T> OrderedReceiver<T> {
                 }
             }
             // Wait for notification outside the lock to avoid deadlocks
-            self.notify.recv().await;
+            if let None = self.notify.recv().await {
+                return None;
+            };
         }
     }
 
