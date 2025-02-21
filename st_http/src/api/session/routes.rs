@@ -11,7 +11,7 @@ use st_system::{CharacterName, Voice};
 use st_system::voice_manager::VoiceReference;
 
 pub fn config() -> ApiRouter<AppState> {
-    ApiRouter::new().nest("/session/:id",
+    ApiRouter::new().nest("/session/{id}",
                           ApiRouter::new()
                               .api_route("/start", post_with(session_start, session_start_docs))
                               .api_route("/stop", post_with(session_stop, session_stop_docs))

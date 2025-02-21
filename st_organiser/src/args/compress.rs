@@ -12,7 +12,7 @@ pub struct CompressCommand {
     ///
     /// All lines which are not yet compressed will be compressed to OGG Vorbis, and backups of the old files will be made
     game_name: String,
-    /// Exclude a particular voice if it matches the (part of) the given string.
+    /// Exclude a particular voice if it matches (part of) the given string.
     #[clap(long)]
     filter_exclude: Option<String>
 }

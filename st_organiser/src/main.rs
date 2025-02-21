@@ -8,6 +8,7 @@ mod trace;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    color_eyre::install()?;
     let args = args::ClapArgs::parse();
     let conf = Arc::new(st_http::config::initialise_config()?);
     trace::create_subscriber("ERROR,st_http=TRACE,st_organiser=TRACE,st_ml=TRACE").init();

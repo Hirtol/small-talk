@@ -5,10 +5,10 @@ use serde::Serialize;
 use crate::api::error::ApiError;
 
 #[derive(FromRequest, OperationIo)]
-#[from_request(via(axum_jsonschema::Json), rejection(ApiError))]
+#[from_request(via(axum::extract::Json), rejection(ApiError))]
 #[aide(
-    input_with = "axum_jsonschema::Json<T>",
-    output_with = "axum_jsonschema::Json<T>",
+    input_with = "axum::extract::Json<T>",
+    output_with = "axum::extract::Json<T>",
     json_schema
 )]
 pub struct Json<T>(pub T);
@@ -32,7 +32,7 @@ impl<T> From<T> for Json<T> {
 #[from_request(via(axum::extract::Query), rejection(ApiError))]
 #[aide(
     input_with = "axum::extract::Query<T>",
-    output_with = "axum_jsonschema::Json<T>",
+    output_with = "axum::extract::Json<T>",
     json_schema
 )]
 #[aide]
@@ -42,7 +42,7 @@ pub struct Query<T>(pub T);
 #[from_request(via(axum::extract::Path), rejection(ApiError))]
 #[aide(
     input_with = "axum::extract::Path<T>",
-    output_with = "axum_jsonschema::Json<T>",
+    output_with = "axum::extract::Json<T>",
     json_schema
 )]
 pub struct Path<T>(pub T);

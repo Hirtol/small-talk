@@ -11,38 +11,15 @@ indicatif = "0.17.8"
 tracing-indicatif = "0.3.6"
 
 eyre.workspace = true
-thiserror.workspace = true
-error_set.workspace = true
 itertools = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 
 tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
 
-axum = { version = "0.7.9", features = ["ws", "tower-log", "multipart", "macros"] }
-axum-extra = { version = "0.9.6", features = [] }
-tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
-tower-http = { version = "0.6.1", features = ["full"] }
-reqwest = { version = "0.12.9", features = ["json"] }
-
-axum-jsonschema = { version = "0.8.0", features = ["aide"] }
-aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
-schemars = { version = "0.8.10", features = [] }
-
-chrono = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive", "rc"] }
-serde_json = { workspace = true }
-
 # Path Walking
 walkdir = "2.4"
 path_abs = { version = "0.5", default-features = false }
-dunce = "1.0"
-
-# Conf
-config = { version = "0.14.1", features = ["toml"] }
-dotenv = "0.15"
-platform-dirs = "0.3"
-toml = "0.8"
 
 # ML
 st_ml = { path = "../st_ml", features = ["cuda"] }
@@ -50,4 +27,3 @@ st_system = {path = "../st_system"}
 st_http = { path = "../st_http" }
 wavers.workspace = true
 rayon = "1.10.0"
-hound = { version = "3.5.1" }

@@ -2,7 +2,6 @@ use aide::axum::IntoApiResponse;
 use aide::{OperationIo, OperationOutput};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum_jsonschema::JsonSchemaRejection;
 use error_set::error_set;
 use schemars::JsonSchema;
 use serde::{Serialize};
@@ -16,7 +15,7 @@ error_set! {
         Other(eyre::Error),
         #[display("JSON validation error {source:?}")]
         Json {
-            source: JsonSchemaRejection
+            source: JsonRejection
         },
         #[display("Path validation error {source:?}")]
         Path {
@@ -57,7 +56,7 @@ impl IntoResponse for ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             ApiError::Json { source } => {
-                return source.into_response()
+                StatusCode::BAD_REQUEST
             }
             ApiError::Path { source } => {
                 return source.into_response()
@@ -71,8 +70,8 @@ impl IntoResponse for ApiError {
     }
 }
 
-impl From<JsonSchemaRejection> for ApiError {
-    fn from(value: JsonSchemaRejection) -> Self {
+impl From<JsonRejection> for ApiError {
+    fn from(value: JsonRejection) -> Self {
         ApiError::Json {
             source: value,
         }

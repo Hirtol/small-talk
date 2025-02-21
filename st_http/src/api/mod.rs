@@ -26,12 +26,12 @@ pub struct AppState {
 }
 
 /// Root config for all GraphQL queries
-pub fn config(app_state: AppState) -> Router<AppState> {
-    aide::r#gen::on_error(|error| {
+pub fn config() -> Router<AppState> {
+    aide::generate::on_error(|error| {
         tracing::error!(?error, "Aide Error");
     });
 
-    aide::r#gen::extract_schemas(true);
+    aide::generate::extract_schemas(true);
     let mut api = OpenApi::default();
     
     let base_router = ApiRouter::new()
@@ -45,7 +45,7 @@ pub fn config(app_state: AppState) -> Router<AppState> {
 }
 
 pub fn docs_routes() -> ApiRouter {
-    aide::r#gen::infer_responses(true);
+    aide::generate::infer_responses(true);
 
     let router: ApiRouter = ApiRouter::new()
         .api_route(
@@ -59,7 +59,7 @@ pub fn docs_routes() -> ApiRouter {
         )
         .route("/api.json", get(serve_docs));
 
-    aide::r#gen::infer_responses(false);
+    aide::generate::infer_responses(false);
 
     router
 }

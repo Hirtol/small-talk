@@ -143,13 +143,13 @@ async fn construct_server(config: SharedConfig, system: TtsSystemHandle) -> eyre
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new().br(true).gzip(true).deflate(true));
 
-    let app = api_router(state.clone()).layer(app_layers).with_state(state);
+    let app = api_router().layer(app_layers).with_state(state);
 
     Ok(apply_security_middleware(app))
 }
 
-fn api_router(app_state: AppState) -> Router<AppState> {
-    crate::api::config(app_state)
+fn api_router() -> Router<AppState> {
+    crate::api::config()
 }
 
 fn apply_security_middleware(router: Router) -> Router {
