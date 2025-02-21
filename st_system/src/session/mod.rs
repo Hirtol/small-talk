@@ -1,7 +1,7 @@
 use eyre::{Context, ContextCompat};
 use itertools::Itertools;
 use path_abs::PathOps;
-use rand::{prelude::IteratorRandom, thread_rng};
+use rand::{prelude::IteratorRandom};
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -393,7 +393,7 @@ impl GameSharedData {
                             .sorted_by_key(|(_, count)| *count)
                             .take_while(|(_, count)| *count == least_used_count)
                             .map(|(v, _)| v)
-                            .choose(&mut thread_rng())
+                            .choose(&mut rand::rng())
                             .context("No available male voice to assign, please make sure there is at least one!")?;
 
                         male_voice.clone()
@@ -415,7 +415,7 @@ impl GameSharedData {
                             .sorted_by_key(|(_, count)| *count)
                             .take_while(|(_, count)| *count == least_used_count)
                             .map(|(v, _)| v)
-                            .choose(&mut thread_rng())
+                            .choose(&mut rand::rng())
                             .context("No available female voice to assign, please make sure there is at least one!")?;
 
                         female_voice.clone()

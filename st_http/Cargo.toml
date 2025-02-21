@@ -1,10 +1,8 @@
 [package]
 name = "st_http"
 version = "0.1.0"
-edition = "2021"
 description = "TTS api for game voicing"
-repository = "https://github.com/Hirtol/small-talk"
-license = "MIT"
+edition.workspace = true
 
 [lib]
 doctest = false

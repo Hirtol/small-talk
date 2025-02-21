@@ -6,7 +6,6 @@ use std::sync::Arc;
 use eyre::ContextCompat;
 use path_abs::{PathInfo, PathOps};
 use rand::prelude::IteratorRandom;
-use rand::thread_rng;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
@@ -309,7 +308,7 @@ impl FsVoiceData {
     /// Select any random sample in the dataset.
     pub fn random_sample(&self) -> eyre::Result<FsVoiceSample> {
         self.all_samples()
-            .choose(&mut thread_rng())
+            .choose(&mut rand::rng())
             .context("No sample available")
     }
     
@@ -317,7 +316,7 @@ impl FsVoiceData {
     pub fn try_random_sample(&self, predicate: impl FnMut(&FsVoiceSample) -> bool) -> eyre::Result<FsVoiceSample> {
         self.all_samples()
             .filter(predicate)
-            .choose(&mut thread_rng())
+            .choose(&mut rand::rng())
             .context("No sample available matching the predicate")
     }
     
@@ -332,7 +331,7 @@ impl FsVoiceData {
         Ok(output)
     }
 
-    pub fn try_emotion_sample(&self, emotion: BasicEmotion) -> eyre::Result<impl Iterator<Item=Vec<FsVoiceSample>>> {
+    pub fn try_emotion_sample(&self, emotion: BasicEmotion) -> eyre::Result<impl Iterator<Item=Vec<FsVoiceSample>> + use<>> {
         let mut samples = self.get_samples()?;
 
         Ok(emotion.to_preference_order()

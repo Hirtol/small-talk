@@ -3,7 +3,6 @@ use crate::{
 };
 use eyre::ContextCompat;
 use futures::{future::BoxFuture, FutureExt};
-use rodio::{Decoder, OutputStream, Sink};
 use std::{
     collections::VecDeque,
     fs::File,

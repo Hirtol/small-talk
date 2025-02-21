@@ -13,7 +13,7 @@ use crate::{
 use eyre::{ContextCompat, WrapErr};
 use itertools::Itertools;
 use path_abs::PathOps;
-use rand::{prelude::IteratorRandom, thread_rng};
+use rand::{prelude::IteratorRandom};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
 use tracing::Instrument;
 
@@ -159,7 +159,7 @@ impl GameQueueActor {
                 voice: voice.reference.name,
             })?
             .into_iter()
-            .choose(&mut thread_rng())
+            .choose(&mut rand::rng())
             .context("No sample")?;
 
         let sample_path = sample.sample.clone();
