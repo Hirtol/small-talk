@@ -268,7 +268,7 @@ impl PlaybackSettings {
                 PlaybackEnvironment::Outdoors => (0.0, 0.0),
                 // PlaybackEnvironment::IndoorsSmall => (0.01, 0.1),
                 PlaybackEnvironment::Indoors => (0.04, 0.1),
-                PlaybackEnvironment::Cave => (0.4, 0.6),
+                PlaybackEnvironment::Cave => (0.2, 0.6),
             };
             builder.add_effect(ReverbBuilder::new().mix(mix).feedback(feedback));
         }
