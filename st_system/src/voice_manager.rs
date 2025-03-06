@@ -162,6 +162,16 @@ impl VoiceDestination {
     }
 }
 
+impl From<String> for VoiceDestination {
+    fn from(value: String) -> Self {
+        if value == "global" || value == "Global" {
+            Self::Global
+        } else {
+            Self::Game(value)
+        }
+    }
+}
+
 /// A voice for TTS usage which is found on disk
 #[derive(Debug, Clone)]
 pub struct FsVoice {

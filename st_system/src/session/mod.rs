@@ -1,39 +1,39 @@
+use crate::{
+    config::TtsSystemConfig, data::TtsModel, emotion::EmotionBackend, error::GameSessionError, playback::PlaybackEngineHandle, postprocessing::AudioData, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
+    tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
+    voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference},
+    CharacterName,
+    CharacterVoice,
+    Gender,
+    PostProcessing,
+    TtsResponse,
+    TtsVoice,
+    VoiceLine,
+};
 use eyre::{Context, ContextCompat};
 use itertools::Itertools;
+use linecache::LineCache;
+use order_channel::OrderedSender;
 use path_abs::PathOps;
-use rand::{prelude::IteratorRandom};
+use queue_actor::{GameQueueActor, SingleRequest};
+use rand::prelude::IteratorRandom;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
     time::SystemTime,
 };
-use std::sync::atomic::AtomicBool;
-use tokio::sync::{broadcast, broadcast::error::RecvError, Mutex, Notify};
-use tokio::sync::mpsc::error::TrySendError;
-use linecache::LineCache;
-use order_channel::OrderedSender;
-use queue_actor::{GameQueueActor, SingleRequest};
-use crate::{CharacterName, CharacterVoice, Gender, PostProcessing, TtsResponse, TtsVoice, VoiceLine};
-use crate::config::TtsSystemConfig;
-use crate::data::TtsModel;
-use crate::emotion::EmotionBackend;
-use crate::error::GameSessionError;
-use crate::playback::PlaybackEngineHandle;
-use crate::postprocessing::AudioData;
-use crate::rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult};
-use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult};
-use crate::voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference};
+use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
 
 const CONFIG_NAME: &str = "config.json";
 const LINES_NAME: &str = "lines.json";
 
 type GameResult<T> = std::result::Result<T, GameSessionError>;
 
-mod queue_actor;
-mod order_channel;
 pub mod linecache;
+mod order_channel;
+mod queue_actor;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {
@@ -105,7 +105,12 @@ impl GameSessionHandle {
     /// Force the character mapping to use the given voice.
     pub async fn force_character_voice(&self, character: CharacterName, voice: VoiceReference) -> eyre::Result<()> {
         tracing::debug!(?character, ?voice, "Forced voice mapping");
-        self.game_tts.data.game_data.character_map.pin().insert(character, voice);
+        self.game_tts
+            .data
+            .game_data
+            .character_map
+            .pin()
+            .insert(character, voice);
         Ok(())
     }
 
@@ -125,6 +130,19 @@ impl GameSessionHandle {
     /// Return all available voices for this particular game, including global voices.
     pub async fn available_voices(&self) -> eyre::Result<Vec<FsVoiceData>> {
         Ok(self.voice_man.get_voices(&self.game_tts.data.game_data.game_name))
+    }
+
+    /// Return all text lines voiced by the given [VoiceReference]
+    pub async fn voice_lines(&self, voice: &VoiceReference) -> eyre::Result<Vec<String>> {
+        let lock = self.game_tts.data.line_cache.lock().await;
+
+        Ok(lock
+            .voice_to_line
+            .get(voice)
+            .context("Voice doesn't exist")?
+            .keys()
+            .cloned()
+            .collect())
     }
 
     /// Will add the given items onto the queue for TTS generation.
@@ -156,7 +174,9 @@ impl GameTts {
     /// These items will be prioritised over previous queue items
     pub async fn add_all_to_queue(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
         // First invalidate all lines which have a `force_generate` flag.
-        self.data.invalidate_cache_lines(items.iter().filter(|v| v.force_generate).cloned().collect()).await?;
+        self.data
+            .invalidate_cache_lines(items.iter().filter(|v| v.force_generate).cloned().collect())
+            .await?;
         // Reverse iterator to ensure the push_front will leave us with the correct order in the queue
         self.queue
             .change_queue(|queue| {
@@ -179,7 +199,7 @@ impl GameTts {
 
         self.queue
             .change_queue(|queue| {
-                    queue.push_front((item, Some(snd), tracing::Span::current()));
+                queue.push_front((item, Some(snd), tracing::Span::current()));
             })
             .await?;
 
@@ -202,26 +222,35 @@ impl GameTts {
     ///
     /// Any previous request(s) on the highest priority channel are demoted to back of the regular queue.
     #[tracing::instrument(skip(self))]
-    pub async fn request_tts_with_channel(&self, request: VoiceLine, send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>) -> eyre::Result<()> {
+    pub async fn request_tts_with_channel(
+        &self,
+        request: VoiceLine,
+        send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>,
+    ) -> eyre::Result<()> {
         if request.force_generate {
             self.data.invalidate_cache_line(&request).await?;
         }
         // First check if the cache already contains the required data
-         if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
+        if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
             let _ = send.send(Arc::new(tts_response));
         } else {
             // Otherwise send a priority request to our queue, clear any previous urgent requests.
-            let to_queue = self.priority.change_queue(move |priority| {
-                let old_values = std::mem::take(priority);
-                priority.push_front((request, Some(send), tracing::Span::current()));
-                old_values
-            }).await?;
+            let to_queue = self
+                .priority
+                .change_queue(move |priority| {
+                    let old_values = std::mem::take(priority);
+                    priority.push_front((request, Some(send), tracing::Span::current()));
+                    old_values
+                })
+                .await?;
 
-             if !to_queue.is_empty() {
-                 self.queue.change_queue(move |queue| {
-                     queue.extend(to_queue);
-                 }).await?;
-             }
+            if !to_queue.is_empty() {
+                self.queue
+                    .change_queue(move |queue| {
+                        queue.extend(to_queue);
+                    })
+                    .await?;
+            }
         };
 
         Ok(())
@@ -330,10 +359,7 @@ impl GameSharedData {
                 TtsVoice::ForceVoice(forced) => forced.clone(),
                 TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
             };
-            cache.voice_to_line
-                .entry(voice_to_use)
-                .or_default()
-                .remove(&item.line);
+            cache.voice_to_line.entry(voice_to_use).or_default().remove(&item.line);
         }
 
         Ok(())
@@ -346,10 +372,7 @@ impl GameSharedData {
             TtsVoice::ForceVoice(forced) => forced.clone(),
             TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
         };
-        cache.voice_to_line
-            .entry(voice_to_use)
-            .or_default()
-            .remove(&line.line);
+        cache.voice_to_line.entry(voice_to_use).or_default().remove(&line.line);
 
         Ok(())
     }
@@ -460,4 +483,3 @@ impl GameSharedData {
         self.config.game_lines_cache(&self.game_data.game_name)
     }
 }
-

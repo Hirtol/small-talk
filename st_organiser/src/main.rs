@@ -22,6 +22,9 @@ async fn main() -> eyre::Result<()> {
         SubCommands::Compress(comp) => {
             comp.run(conf).await?;
         }
+        SubCommands::ReassignVoice(reas) => {
+            reas.run(conf).await?;
+        }
     }
 
     tracing::info!(
