@@ -108,7 +108,6 @@ impl PlaybackEngine {
     #[tracing::instrument(skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         // There is no callback/future we can use to detect a finished line, so we'll just have to poll it.
-        // TODO: Potentially switch to the `kira` crate from the Bevy ecosystem for Reverb/callbacks
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
             let one_shot_future: futures::future::OptionFuture<_> = self.current_request.as_mut().into();
@@ -233,13 +232,13 @@ impl PlaybackEngine {
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum PlaybackEnvironment {
+    /// No applied reverb
     Outdoors,
+    /// Modicum of reverb
     Indoors,
+    /// Large amount of reverb
     Cave
 }
-/// Large amount of reverb
-/// Modicum of reverb
-/// No applied reverb
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct PlaybackSettings {
@@ -265,7 +264,6 @@ impl PlaybackSettings {
             // Outdoors is equivalent to no reverb at all.
             let (mix, feedback) = match env {
                 PlaybackEnvironment::Outdoors => (0.0, 0.0),
-                // PlaybackEnvironment::IndoorsSmall => (0.01, 0.1),
                 PlaybackEnvironment::Indoors => (0.04, 0.1),
                 PlaybackEnvironment::Cave => (0.2, 0.6),
             };
