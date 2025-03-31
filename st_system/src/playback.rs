@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
-use kira::effect::filter::FilterBuilder;
+use kira::effect::filter::{FilterBuilder, FilterMode};
 use kira::effect::reverb::ReverbBuilder;
 use kira::sound::PlaybackState;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
@@ -258,19 +258,23 @@ impl PlaybackSettings {
     /// * Optional Reverb based on environment
     fn construct_track(&self) -> TrackBuilder {
         let mut builder = TrackBuilder::new();
-        builder.add_effect(FilterBuilder::new().cutoff(16_000.));
+        builder.add_effect(FilterBuilder::new().mode(FilterMode::LowPass).cutoff(16_000.));
         if let Some(env) = self.environment {
             // Arbitrarily picked based on what sounded decent
             // Outdoors is equivalent to no reverb at all.
             let (mix, feedback) = match env {
-                PlaybackEnvironment::Outdoors => (0.0, 0.0),
+                PlaybackEnvironment::Outdoors => (0.003, 0.5),
                 PlaybackEnvironment::Indoors => (0.04, 0.1),
                 PlaybackEnvironment::Cave => (0.2, 0.6),
             };
             builder.add_effect(ReverbBuilder::new().mix(mix).feedback(feedback));
+
+            if let PlaybackEnvironment::Outdoors = env {
+                // High pass filter to somewhat simulate outdoors environments.
+                builder.add_effect(FilterBuilder::new().mode(FilterMode::HighPass).cutoff(130.));
+            }
         }
 
         builder
     }
 }
-

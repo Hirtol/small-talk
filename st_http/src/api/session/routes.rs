@@ -29,7 +29,6 @@ pub struct ApiSessionStart {
 }
 
 #[tracing::instrument(skip(state))]
-#[axum::debug_handler]
 pub async fn session_start(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<Session>> {
     let _ = state.system.get_or_start_session(&game_name.id).await?;
     

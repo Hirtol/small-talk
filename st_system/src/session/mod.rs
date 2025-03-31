@@ -97,6 +97,11 @@ impl GameSessionHandle {
         })
     }
 
+    /// Retrieve the name of this session
+    pub fn name(&self) -> &str {
+        &self.game_tts.data.game_data.game_name
+    }
+
     /// Check whether this session is still alive, or was somehow taken offline.
     pub fn is_alive(&self) -> bool {
         !self.game_tts.priority.is_closed()
