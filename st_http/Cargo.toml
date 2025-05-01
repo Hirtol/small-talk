@@ -25,8 +25,8 @@ eyre.workspace = true
 error_set.workspace = true
 itertools = { workspace = true }
 
-tokio = { version = "1", features = ["full"] }
-futures = { version = "0.3" }
+tokio = { workspace = true, features = ["full"] }
+futures.workspace = true
 
 axum = { version = "0.8.1", features = ["ws", "tower-log", "multipart", "macros"] }
 axum-extra = { version = "0.10.0", features = [] }

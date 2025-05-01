@@ -24,6 +24,15 @@ chrono = "0.4"
 # Audio Processing
 wavers = "1.5.1"
 
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = { version = "0.3" }
+
+# Database
+sea-orm = "1"
+sea-query = { version = "0.32", features = ["with-uuid", "with-chrono", "with-time", "with-json", "with-rust_decimal"] }
+sqlx = { version = "0.8.5", features = ["runtime-tokio-rustls", "sqlite"] }
+
 # Build dependencies with full release optimizations in debug builds since they'll rarely change
 [profile.dev.package."*"]
 opt-level = 3
