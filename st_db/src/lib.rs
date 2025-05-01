@@ -1,4 +1,3 @@
-use sea_orm::prelude::async_trait;
 use sea_orm::sea_query::Nullable;
 use sea_orm::strum::IntoEnumIterator;
 use sea_orm::{
@@ -12,6 +11,12 @@ mod pool;
 pub use pool::*;
 
 pub type DbId = i32;
+
+/// Return the migrations for a game-specific database.
+pub fn migrate() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("./migrations")
+}
+
 
 pub trait EntityExt: EntityTrait {
     /// Find all entities which have their primary key in the provided iterator.
@@ -80,7 +85,6 @@ pub trait SelectExt<E: EntityTrait> {
         I: Into<Option<u64>>;
 }
 
-#[async_trait::async_trait]
 impl<E: EntityTrait> SelectExt<E> for Select<E> {
     async fn one_or_err<'a, C>(self, db: &C) -> Result<E::Model, DbErr>
     where

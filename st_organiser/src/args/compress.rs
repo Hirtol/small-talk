@@ -22,7 +22,7 @@ impl CompressCommand {
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
         let game_dir = config.dirs.game_dir(&self.game_name);
         let lines_backup = game_dir.join("lines_wav_backup");
-        let (game_data, line_cache) = st_system::session::GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
+        let (game_data, line_cache, db) = st_system::session::GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
         let shared_data = st_system::session::GameSharedData {
             config: config.dirs.clone(),
             voice_manager: Arc::new(VoiceManager::new(config.dirs.clone())),

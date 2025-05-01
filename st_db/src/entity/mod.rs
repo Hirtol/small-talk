@@ -2,3 +2,4 @@
 
 pub mod characters;
 pub mod dialogue;
+pub mod voice_lines;

@@ -24,14 +24,18 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
     time::SystemTime,
 };
+use std::num::NonZeroU32;
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
+use crate::session::db::SessionDb;
 
 const CONFIG_NAME: &str = "config.json";
+const DB_NAME: &str = "database.db";
 const LINES_NAME: &str = "lines.json";
 
 type GameResult<T> = std::result::Result<T, GameSessionError>;
 
 pub mod linecache;
+pub mod db;
 mod order_channel;
 mod queue_actor;
 
@@ -54,7 +58,7 @@ impl GameSessionHandle {
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);
         // Small amount before we exert back-pressure
-        let (game_data, line_cache) = GameData::create_or_load_from_file(game_name, &config).await?;
+        let (game_data, line_cache, db) = GameData::create_or_load_from_file(game_name, &config).await?;
         let line_cache = Arc::new(Mutex::new(line_cache));
         let (q_send, q_recv) = order_channel::ordered_channel();
         let (p_send, p_recv) = order_channel::ordered_channel();
@@ -83,6 +87,7 @@ impl GameSessionHandle {
         });
 
         let game_tts = Arc::new(GameTts {
+            game_db: db,
             data: shared_data,
             queue: q_send,
             priority: p_send,
@@ -168,6 +173,8 @@ impl GameSessionHandle {
 }
 
 pub struct GameTts {
+    /// Database containing character voice mappings and dialogue
+    game_db: SessionDb,
     data: Arc<GameSharedData>,
     queue: OrderedSender<SingleRequest>,
     priority: OrderedSender<SingleRequest>,
@@ -278,7 +285,7 @@ impl GameData {
     pub async fn create_or_load_from_file(
         game_name: &str,
         config: &TtsSystemConfig,
-    ) -> eyre::Result<(GameData, LineCache)> {
+    ) -> eyre::Result<(GameData, LineCache, SessionDb)> {
         if tokio::fs::try_exists(config.game_dir(game_name)).await? {
             Self::load_from_dir(config, game_name).await
         } else {
@@ -286,7 +293,7 @@ impl GameData {
         }
     }
 
-    pub async fn create(game_name: &str, config: &TtsSystemConfig) -> eyre::Result<(GameData, LineCache)> {
+    pub async fn create(game_name: &str, config: &TtsSystemConfig) -> eyre::Result<(GameData, LineCache, SessionDb)> {
         let data = GameData {
             game_name: game_name.into(),
             character_map: Default::default(),
@@ -298,11 +305,18 @@ impl GameData {
         let dir = config.game_dir(game_name);
         tokio::fs::create_dir_all(&dir).await?;
         tokio::fs::write(dir.join(CONFIG_NAME), &out).await?;
+        let db_conf = db::DbConfig {
+            db_path: dir.join(DB_NAME),
+            in_memory: false,
+            max_connections_reader: NonZeroU32::new(8).unwrap(),
+            max_connections_writer: NonZeroU32::new(1).unwrap(),
+        };
+        let db = db::initialise_database(db_conf).await?;
 
-        Ok((data, Default::default()))
+        Ok((data, Default::default(), db))
     }
 
-    pub async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache)> {
+    pub async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache, SessionDb)> {
         let dir = conf.game_dir(game_name);
         let game_data = tokio::fs::read(dir.join(CONFIG_NAME)).await?;
         let data = serde_json::from_slice(&game_data)?;
@@ -311,7 +325,15 @@ impl GameData {
         let line_cache = tokio::fs::read(line_file).await.unwrap_or_default();
         let lines = serde_json::from_slice(&line_cache).unwrap_or_default();
 
-        Ok((data, lines))
+        let db_conf = db::DbConfig {
+            db_path: dir.join(DB_NAME),
+            in_memory: false,
+            max_connections_reader: NonZeroU32::new(8).unwrap(),
+            max_connections_writer: NonZeroU32::new(1).unwrap(),
+        };
+        let db = db::initialise_database(db_conf).await?;
+
+        Ok((data, lines, db))
     }
 }
 

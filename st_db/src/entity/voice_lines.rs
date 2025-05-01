@@ -7,22 +7,26 @@ pub struct Entity;
 
 impl EntityName for Entity {
     fn table_name(&self) -> &str {
-        "dialogue"
+        "voice_lines"
     }
 }
 
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub id: i32,
-    pub character_id: i32,
-    pub dialogue_text: String,
+    pub dialogue_id: i32,
+    pub voice_name: String,
+    pub voice_location: String,
+    pub file_name: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Id,
-    CharacterId,
-    DialogueText,
+    DialogueId,
+    VoiceName,
+    VoiceLocation,
+    FileName,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -39,8 +43,7 @@ impl PrimaryKeyTrait for PrimaryKey {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Characters,
-    VoiceLines,
+    Dialogue,
 }
 
 impl ColumnTrait for Column {
@@ -48,8 +51,10 @@ impl ColumnTrait for Column {
     fn def(&self) -> ColumnDef {
         match self {
             Self::Id => ColumnType::Integer.def(),
-            Self::CharacterId => ColumnType::Integer.def(),
-            Self::DialogueText => ColumnType::Text.def(),
+            Self::DialogueId => ColumnType::Integer.def(),
+            Self::VoiceName => ColumnType::Text.def(),
+            Self::VoiceLocation => ColumnType::Text.def(),
+            Self::FileName => ColumnType::Text.def(),
         }
     }
 }
@@ -57,24 +62,17 @@ impl ColumnTrait for Column {
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::Characters => Entity::belongs_to(super::characters::Entity)
-                .from(Column::CharacterId)
-                .to(super::characters::Column::Id)
+            Self::Dialogue => Entity::belongs_to(super::dialogue::Entity)
+                .from(Column::DialogueId)
+                .to(super::dialogue::Column::Id)
                 .into(),
-            Self::VoiceLines => Entity::has_many(super::voice_lines::Entity).into(),
         }
     }
 }
 
-impl Related<super::characters::Entity> for Entity {
+impl Related<super::dialogue::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Characters.def()
-    }
-}
-
-impl Related<super::voice_lines::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::VoiceLines.def()
+        Relation::Dialogue.def()
     }
 }
 
