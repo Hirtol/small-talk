@@ -40,7 +40,6 @@ impl PrimaryKeyTrait for PrimaryKey {
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     Characters,
-    VoiceLines,
 }
 
 impl ColumnTrait for Column {
@@ -61,7 +60,6 @@ impl RelationTrait for Relation {
                 .from(Column::CharacterId)
                 .to(super::characters::Column::Id)
                 .into(),
-            Self::VoiceLines => Entity::has_many(super::voice_lines::Entity).into(),
         }
     }
 }
@@ -69,12 +67,6 @@ impl RelationTrait for Relation {
 impl Related<super::characters::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Characters.def()
-    }
-}
-
-impl Related<super::voice_lines::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::VoiceLines.def()
     }
 }
 

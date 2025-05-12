@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
 use crate::config::TtsSystemConfig;
 use crate::error::VoiceManagerError;
+use crate::session::db;
 use crate::Voice;
 
 #[derive(Debug, Clone)]
@@ -128,6 +129,13 @@ pub struct VoiceReference {
 }
 
 impl VoiceReference {
+    pub fn from_strings(name: Voice, location: String) -> VoiceReference {
+        Self {
+            name,
+            location: VoiceDestination::from(location),
+        }
+    }
+
     pub fn global(name: impl Into<Voice>) -> VoiceReference {
         VoiceReference {
             name: name.into(),
@@ -143,6 +151,24 @@ impl VoiceReference {
     }
 }
 
+impl From<db::voice_lines::Model> for VoiceReference {
+    fn from(value: db::voice_lines::Model) -> Self {
+       Self {
+            name: value.voice_name,
+            location: value.voice_location.into()
+        }
+    }
+}
+
+impl From<db::characters::Model> for VoiceReference {
+    fn from(value: db::characters::Model) -> Self {
+        Self {
+            name: value.voice_name,
+            location: value.voice_location.into()
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum VoiceDestination {
     Global,
@@ -150,6 +176,13 @@ pub enum VoiceDestination {
 }
 
 impl VoiceDestination {
+    pub fn to_string_value(&self) -> String {
+        match self {
+            VoiceDestination::Global => "global".into(),
+            VoiceDestination::Game(game_val) => game_val.clone()
+        }
+    }
+
     pub fn to_path(&self, conf: &TtsSystemConfig) -> PathBuf {
         match self {
             VoiceDestination::Global => {

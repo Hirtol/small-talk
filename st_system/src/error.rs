@@ -11,6 +11,8 @@ error_set::error_set! {
         InvalidText {
             txt: String,
         },
+        #[display("Database error, please submit a bug report: {0}")]
+        DbErr(sea_orm::DbErr)
     } || VoiceManagerError || RvcError || EmotionError || TtsError;
 
     VoiceManagerError = {

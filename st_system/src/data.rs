@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use crate::session::db::DatabaseGender;
 use crate::voice_manager::VoiceReference;
 
 /// Internal name for a particular voice.
@@ -75,10 +76,37 @@ pub struct CharacterVoice {
     pub gender: Option<Gender>,
 }
 
-#[derive(Deserialize, Serialize, Debug, JsonSchema, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Deserialize, Serialize, Debug, JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash, Default)]
 pub enum Gender {
+    #[default]
     Male,
     Female,
+}
+
+impl Gender {
+    pub fn to_db(self) -> DatabaseGender {
+        self.into()
+    }
+}
+
+impl From<DatabaseGender> for Gender {
+    fn from(value: DatabaseGender) -> Self {
+        match value {
+            DatabaseGender::Male => Gender::Male,
+            DatabaseGender::Female => Gender::Female
+        }
+    }
+}
+
+impl From<Gender> for DatabaseGender {
+    fn from(value: Gender) -> Self {
+        match value {
+            Gender::Male => {
+                DatabaseGender::Male
+            }
+            Gender::Female => DatabaseGender::Female
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]

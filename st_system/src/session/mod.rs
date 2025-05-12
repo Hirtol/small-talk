@@ -1,5 +1,6 @@
 use crate::{
     config::TtsSystemConfig, data::TtsModel, emotion::EmotionBackend, error::GameSessionError, playback::PlaybackEngineHandle, postprocessing::AudioData, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
+    session::db::{DatabaseGender, DbEnumHelper, SessionDb},
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
     voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference},
     CharacterName,
@@ -17,16 +18,18 @@ use order_channel::OrderedSender;
 use path_abs::PathOps;
 use queue_actor::{GameQueueActor, SingleRequest};
 use rand::prelude::IteratorRandom;
+use sea_orm::{sea_query, ActiveEnum, ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveValue, QueryFilter, QuerySelect, QueryTrait};
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use st_db::{ReadConnection, SelectExt, WriteConnection, WriteTransaction};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    num::NonZeroU32,
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
     time::SystemTime,
 };
-use std::num::NonZeroU32;
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
-use crate::session::db::SessionDb;
+use crate::session::queue_actor::VoiceLineRequest;
 
 const CONFIG_NAME: &str = "config.json";
 const DB_NAME: &str = "database.db";
@@ -34,8 +37,8 @@ const LINES_NAME: &str = "lines.json";
 
 type GameResult<T> = std::result::Result<T, GameSessionError>;
 
-pub mod linecache;
 pub mod db;
+pub mod linecache;
 mod order_channel;
 mod queue_actor;
 
@@ -59,15 +62,16 @@ impl GameSessionHandle {
         tracing::info!("Starting: {}", game_name);
         // Small amount before we exert back-pressure
         let (game_data, line_cache, db) = GameData::create_or_load_from_file(game_name, &config).await?;
-        let line_cache = Arc::new(Mutex::new(line_cache));
+        // let line_cache = Arc::new(Mutex::new(line_cache));
         let (q_send, q_recv) = order_channel::ordered_channel();
         let (p_send, p_recv) = order_channel::ordered_channel();
 
         let shared_data = Arc::new(GameSharedData {
+            game_db: db,
             config,
             voice_manager: voice_man.clone(),
             game_data,
-            line_cache,
+            // line_cache,
         });
 
         let queue_actor = GameQueueActor {
@@ -87,7 +91,6 @@ impl GameSessionHandle {
         });
 
         let game_tts = Arc::new(GameTts {
-            game_db: db,
             data: shared_data,
             queue: q_send,
             priority: p_send,
@@ -113,27 +116,52 @@ impl GameSessionHandle {
     }
 
     /// Force the character mapping to use the given voice.
-    pub async fn force_character_voice(&self, character: CharacterName, voice: VoiceReference) -> eyre::Result<()> {
+    pub async fn force_character_voice(&self, character: CharacterVoice, voice: VoiceReference) -> eyre::Result<()> {
         tracing::debug!(?character, ?voice, "Forced voice mapping");
-        self.game_tts
-            .data
-            .game_data
-            .character_map
-            .pin()
-            .insert(character, voice);
+        use st_db::entity::characters::*;
+
+        let to_update = ActiveModel {
+            id: Default::default(),
+            character_name: character.name.into_active_value(),
+            character_gender: character.gender.unwrap_or(Gender::default()).to_db().to_value().into_active_value(),
+            voice_name: voice.name.into_active_value(),
+            voice_location: voice.location.to_string_value().into_active_value(),
+        };
+
+        Entity::insert(to_update)
+            .on_conflict(
+                sea_query::OnConflict::columns([Column::CharacterName, Column::CharacterGender])
+                    .update_columns([Column::VoiceName, Column::VoiceLocation])
+                    .to_owned(),
+            )
+            .exec(self.game_tts.data.game_db.reader())
+            .await?;
         Ok(())
     }
 
     /// Return all current character voice mappings
-    pub async fn character_voices(&self) -> eyre::Result<HashMap<CharacterName, VoiceReference>> {
-        Ok(self
-            .game_tts
-            .data
-            .game_data
-            .character_map
-            .pin()
-            .iter()
-            .map(|(c, v)| (c.clone(), v.clone()))
+    pub async fn character_voices(&self) -> eyre::Result<HashMap<CharacterVoice, VoiceReference>> {
+        use st_db::entity::characters::*;
+
+        let entities = Entity::find().all(self.game_tts.data.game_db.reader()).await?;
+
+        Ok(entities
+            .into_iter()
+            .map(|val| {
+                let character = CharacterVoice {
+                    name: val.character_name,
+                    gender: DatabaseGender::try_from_value(&val.character_gender)
+                        .map(|g| g.into())
+                        .ok()
+                };
+
+                let voice = VoiceReference {
+                    name: val.voice_name,
+                    location: val.voice_location.into(),
+                };
+
+                (character, voice)
+            })
             .collect())
     }
 
@@ -144,15 +172,15 @@ impl GameSessionHandle {
 
     /// Return all text lines voiced by the given [VoiceReference]
     pub async fn voice_lines(&self, voice: &VoiceReference) -> eyre::Result<Vec<String>> {
-        let lock = self.game_tts.data.line_cache.lock().await;
+        let voice_ref: Vec<String> = db::voice_lines::Entity::find()
+            .select_only()
+            .columns([db::voice_lines::Column::DialogueText])
+            .filter(db::lines_table_voice_reference_condition(voice))
+            .into_tuple()
+            .all(self.game_tts.data.game_db.reader())
+            .await?;
 
-        Ok(lock
-            .voice_to_line
-            .get(voice)
-            .context("Voice doesn't exist")?
-            .keys()
-            .cloned()
-            .collect())
+        Ok(voice_ref)
     }
 
     /// Will add the given items onto the queue for TTS generation.
@@ -168,13 +196,17 @@ impl GameSessionHandle {
     /// This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
-        self.game_tts.request_tts(request).await
+        let (snd, rcv) = tokio::sync::oneshot::channel();
+
+        self.game_tts.request_tts_with_channel(request, snd).await?;
+
+        Ok(rcv.await?)
     }
 }
 
+
 pub struct GameTts {
     /// Database containing character voice mappings and dialogue
-    game_db: SessionDb,
     data: Arc<GameSharedData>,
     queue: OrderedSender<SingleRequest>,
     priority: OrderedSender<SingleRequest>,
@@ -203,9 +235,11 @@ impl GameTts {
     /// Request a single voice line with normal priority.
     ///
     /// Returns the completed request.
-    pub async fn add_to_queue(&self, item: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
+    pub async fn add_to_queue(&self, item: VoiceLineRequest) -> eyre::Result<Arc<TtsResponse>> {
         if item.force_generate {
-            self.data.invalidate_cache_line(&item).await?;
+            let tx = self.data.game_db.writer().begin().await?;
+            self.data.invalidate_cache_line(&tx, &item).await?;
+            tx.commit().await?;
         }
         let (snd, rcv) = tokio::sync::oneshot::channel();
 
@@ -220,30 +254,19 @@ impl GameTts {
 
     /// Request a single voice line with the highest priority.
     ///
-    /// If a different request gets posted any previous request will be dropped!
-    #[tracing::instrument(skip(self, request))]
-    pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
-        let (snd, rcv) = tokio::sync::oneshot::channel();
-
-        self.request_tts_with_channel(request, snd).await?;
-
-        Ok(rcv.await?)
-    }
-
-    /// Request a single voice line with the highest priority.
-    ///
     /// Any previous request(s) on the highest priority channel are demoted to back of the regular queue.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts_with_channel(
         &self,
-        request: VoiceLine,
+        request: VoiceLineRequest,
         send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>,
     ) -> eyre::Result<()> {
+        let tx = self.data.game_db.writer().begin().await?;
         if request.force_generate {
-            self.data.invalidate_cache_line(&request).await?;
+            self.data.invalidate_cache_line(&tx, &request).await?;
         }
         // First check if the cache already contains the required data
-        if let Some(tts_response) = self.data.try_cache_retrieve(&request).await? {
+        if let Some(tts_response) = self.data.try_cache_retrieve(&tx, &request).await? {
             let _ = send.send(Arc::new(tts_response));
         } else {
             // Otherwise send a priority request to our queue, clear any previous urgent requests.
@@ -264,6 +287,8 @@ impl GameTts {
                     .await?;
             }
         };
+
+        tx.commit().await?;
 
         Ok(())
     }
@@ -311,12 +336,15 @@ impl GameData {
             max_connections_reader: NonZeroU32::new(8).unwrap(),
             max_connections_writer: NonZeroU32::new(1).unwrap(),
         };
-        let db = db::initialise_database(db_conf).await?;
+        let db = db_conf.initialise_database().await?;
 
         Ok((data, Default::default(), db))
     }
 
-    pub async fn load_from_dir(conf: &TtsSystemConfig, game_name: &str) -> eyre::Result<(GameData, LineCache, SessionDb)> {
+    pub async fn load_from_dir(
+        conf: &TtsSystemConfig,
+        game_name: &str,
+    ) -> eyre::Result<(GameData, LineCache, SessionDb)> {
         let dir = conf.game_dir(game_name);
         let game_data = tokio::fs::read(dir.join(CONFIG_NAME)).await?;
         let data = serde_json::from_slice(&game_data)?;
@@ -331,14 +359,15 @@ impl GameData {
             max_connections_reader: NonZeroU32::new(8).unwrap(),
             max_connections_writer: NonZeroU32::new(1).unwrap(),
         };
-        let db = db::initialise_database(db_conf).await?;
+        let db = db_conf.initialise_database().await?;
 
         Ok((data, lines, db))
     }
 }
 
 pub struct GameSharedData {
-    pub line_cache: Arc<Mutex<LineCache>>,
+    pub game_db: SessionDb,
+    // pub line_cache: Arc<Mutex<LineCache>>,
     pub config: Arc<TtsSystemConfig>,
     pub voice_manager: Arc<VoiceManager>,
     pub game_data: GameData,
@@ -346,70 +375,89 @@ pub struct GameSharedData {
 
 impl GameSharedData {
     #[tracing::instrument(skip_all)]
-    async fn try_cache_retrieve(&self, voice_line: &VoiceLine) -> eyre::Result<Option<TtsResponse>> {
+    async fn try_cache_retrieve(&self, tx: &impl WriteConnection, voice_line: &VoiceLine) -> eyre::Result<Option<TtsResponse>> {
         let voice_to_use = match &voice_line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
-            TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
+            TtsVoice::CharacterVoice(character) => self.map_character(tx, character).await?,
         };
+
         tracing::trace!(?voice_to_use, "Will try to use voice for cache");
 
-        // First check if we have a cache reference
         if !voice_line.force_generate {
-            if let Some(file_name) = self
-                .line_cache
-                .lock()
-                .await
-                .voice_to_line
-                .entry(voice_to_use.clone())
-                .or_default()
-                .get(&voice_line.line)
-            {
-                let target_voice_file = self.lines_voice_path(&voice_to_use).join(file_name);
+            let out = db::voice_lines::Entity::find()
+                .filter(db::lines_table_voice_line_condition(&voice_line.line, &voice_to_use))
+                .one(tx)
+                .await?;
 
-                return Ok(Some(TtsResponse {
+            let result = out.map(|v| {
+                let target_voice_file = self.lines_voice_path(&voice_to_use).join(v.file_name);
+
+                TtsResponse {
                     file_path: target_voice_file,
                     line: voice_line.clone(),
                     voice_used: voice_to_use.name.clone(),
-                }));
-            }
-        }
+                }
+            });
 
-        Ok(None)
+            Ok(result)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Remove all cached lines matching the given `items`.
     async fn invalidate_cache_lines(&self, items: Vec<VoiceLine>) -> eyre::Result<()> {
-        let mut cache = self.line_cache.lock().await;
+        let tx = self.game_db.writer().begin().await?;
 
+        // N queries, could be more efficient...
         for item in items {
-            let voice_to_use = match &item.person {
-                TtsVoice::ForceVoice(forced) => forced.clone(),
-                TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
-            };
-            cache.voice_to_line.entry(voice_to_use).or_default().remove(&item.line);
+            self.invalidate_cache_line(&tx, &item).await?;
         }
+
+        tx.commit().await?;
 
         Ok(())
     }
 
-    async fn invalidate_cache_line(&self, line: &VoiceLine) -> eyre::Result<()> {
-        let mut cache = self.line_cache.lock().await;
+    async fn invalidate_cache_line(&self, tx: &impl WriteConnection, line: &VoiceLine) -> eyre::Result<()> {
+        use st_db::entity::*;
 
         let voice_to_use = match &line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
-            TtsVoice::CharacterVoice(character) => self.map_character(character).await?,
+            TtsVoice::CharacterVoice(character) => self.map_character(tx, character).await?,
         };
-        cache.voice_to_line.entry(voice_to_use).or_default().remove(&line.line);
+
+        voice_lines::Entity::delete_many()
+            .filter(
+                voice_lines::Column::Id.in_subquery(
+                    voice_lines::Entity::find()
+                        .select_only()
+                        .column(voice_lines::Column::Id)
+                        .filter(db::lines_table_voice_line_condition(&line.line, &voice_to_use))
+                        .into_query(),
+                ),
+            )
+            .exec(tx)
+            .await?;
 
         Ok(())
     }
 
     /// Try map the given character to a voice in our backend.
-    async fn map_character(&self, character: &CharacterVoice) -> eyre::Result<VoiceReference> {
-        let pin = self.game_data.character_map.pin_owned();
+    async fn map_character(
+        &self,
+        tx: &impl WriteConnection,
+        character: &CharacterVoice,
+    ) -> eyre::Result<VoiceReference> {
+        // First check if the character exists in our database
+        let existing_voice = db::characters::Entity::find()
+            .filter(db::characters::Column::CharacterName.eq(&character.name))
+            .filter(db::characters::Column::CharacterGender.eq(character.gender.map(|g| g.to_db())))
+            .one(tx)
+            .await?;
 
-        if let Some(voice) = pin.get(&character.name) {
-            Ok(voice.clone())
+        if let Some(voice) = existing_voice {
+            Ok(voice.into())
         } else {
             // First check if a game specific voice exists with the same name as the given character
             let voice_ref = VoiceReference::game(&character.name, self.game_data.game_name.clone());
@@ -417,16 +465,25 @@ impl GameSharedData {
             let voice_to_use = if let Some(matched) = self.voice_manager.get_voice(voice_ref).ok() {
                 matched.reference
             } else {
-                let voice_counts = pin.values().fold(HashMap::new(), |mut map, v| {
-                    *map.entry(v).or_insert(0usize) += 1;
-                    map
-                });
-                let mut least_used_count = usize::MAX;
+                let voice_counts: Vec<(String, String, u32)> = db::characters::Entity::find()
+                    .select_only()
+                    .columns([db::characters::Column::VoiceName, db::characters::Column::VoiceLocation])
+                    .column_as(db::characters::Column::Id.count(), "count")
+                    .group_by(db::characters::Column::VoiceName)
+                    .group_by(db::characters::Column::VoiceLocation)
+                    .into_tuple()
+                    .all(tx)
+                    .await?;
+                let voice_counts = voice_counts
+                    .into_iter()
+                    .map(|(a, b, c)| (VoiceReference::from_strings(a, b), c))
+                    .collect::<HashMap<_, _>>();
+                let mut least_used_count = u32::MAX;
 
                 // Otherwise assign a least-used gendered voice
-                match character.gender {
+                match character.gender.unwrap_or_default() {
                     // Assume male by default
-                    Some(Gender::Male) | None => {
+                    Gender::Male => {
                         let male_voice = self
                             .game_data
                             .male_voices
@@ -448,7 +505,7 @@ impl GameSharedData {
 
                         male_voice.clone()
                     }
-                    Some(Gender::Female) => {
+                    Gender::Female => {
                         let female_voice = self
                             .game_data
                             .female_voices
@@ -473,24 +530,29 @@ impl GameSharedData {
                 }
             };
 
-            let out = pin.get_or_insert(character.name.clone(), voice_to_use).clone();
-            drop(pin);
+            let to_insert = db::characters::ActiveModel {
+                id: Default::default(),
+                character_name: character.name.clone().into_active_value(),
+                character_gender: character.gender.unwrap_or(Gender::default()).to_db().to_value().into_active_value(),
+                voice_name: voice_to_use.name.into_active_value(),
+                voice_location: voice_to_use.location.to_string_value().into_active_value(),
+            };
 
-            // Save the character mapping as we _really_ don't want to lose that.
-            self.save_state().await?;
+            let out = to_insert.insert(tx).await?;
 
-            Ok(out)
+            Ok(out.into())
         }
     }
 
     /// Sync function as we can't do async writes to serde writers
     pub async fn save_cache(&self) -> eyre::Result<()> {
-        let target_dir = self.line_cache_path();
-        let json_file = target_dir.join(LINES_NAME);
-        tokio::fs::create_dir_all(&target_dir).await?;
-
-        let writer = std::io::BufWriter::new(std::fs::File::create(json_file)?);
-        Ok(serde_json::to_writer_pretty(writer, &*self.line_cache.lock().await)?)
+        // let target_dir = self.line_cache_path();
+        // let json_file = target_dir.join(LINES_NAME);
+        // tokio::fs::create_dir_all(&target_dir).await?;
+        //
+        // let writer = std::io::BufWriter::new(std::fs::File::create(json_file)?);
+        // Ok(serde_json::to_writer_pretty(writer, &*self.line_cache.lock().await)?)
+        Ok(())
     }
 
     /// Serialize all variable state (such as character assignments) to disk.

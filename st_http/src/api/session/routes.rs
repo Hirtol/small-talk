@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::api::{ApiResult, ApiRouter, AppState};
 use crate::api::extractor::{Json};
 use crate::api::session::Session;
-use st_system::{CharacterName, Voice};
+use st_system::{CharacterName, CharacterVoice, Voice};
 use st_system::voice_manager::VoiceReference;
 
 pub fn config() -> ApiRouter<AppState> {
@@ -67,7 +67,7 @@ fn get_session_voices_docs(op: TransformOperation) -> TransformOperation {
 }
 
 #[tracing::instrument(skip(state))]
-pub async fn get_session_characters(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<HashMap<CharacterName, VoiceReference>>> {
+pub async fn get_session_characters(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<Json<HashMap<CharacterVoice, VoiceReference>>> {
     let sess = state.system.get_or_start_session(&game_name.id).await?;
 
     let output = sess.character_voices().await?;
@@ -82,7 +82,7 @@ fn get_session_characters_docs(op: TransformOperation) -> TransformOperation {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct PutSessionCharacter {
-    name: CharacterName,
+    character: CharacterVoice,
     voice: VoiceReference,
 }
 
@@ -90,7 +90,7 @@ struct PutSessionCharacter {
 pub async fn put_session_character(state: State<AppState>, Path(game_name): Path<Session>, Json(put): Json<PutSessionCharacter>) -> ApiResult<()> {
     let sess = state.system.get_or_start_session(&game_name.id).await?;
 
-    sess.force_character_voice(put.name, put.voice).await?;
+    sess.force_character_voice(put.character, put.voice).await?;
 
     Ok(())
 }

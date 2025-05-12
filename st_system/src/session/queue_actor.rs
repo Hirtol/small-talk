@@ -1,27 +1,36 @@
 use crate::{
-    data::TtsModel,
-    emotion::EmotionBackend,
-    error::GameSessionError,
-    postprocessing,
+    data::TtsModel, emotion::EmotionBackend, error::GameSessionError, postprocessing,
     postprocessing::AudioData,
     rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
-    session::{order_channel::OrderedReceiver, GameResult, GameSharedData},
+    session::{db, db::DbEnumHelper, order_channel::OrderedReceiver, GameResult, GameSharedData},
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
     voice_manager::VoiceReference,
-    PostProcessing, TtsResponse, TtsVoice, VoiceLine,
+    PostProcessing,
+    TtsResponse,
+    TtsVoice,
+    VoiceLine,
 };
 use eyre::{ContextCompat, WrapErr};
 use itertools::Itertools;
 use path_abs::PathOps;
-use rand::{prelude::IteratorRandom};
+use rand::prelude::IteratorRandom;
+use sea_orm::{ActiveModelTrait, IntoActiveValue};
+use st_db::{DbId, WriteConnection, WriteTransaction};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
 use tracing::Instrument;
 
 pub type SingleRequest = (
-    VoiceLine,
+    VoiceLineRequest,
     Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>,
     tracing::Span,
 );
+
+// pub struct VoiceLineRequest {
+//     pub dialogue_db_id: DbId,
+//     pub line: VoiceLine
+// }
+
+pub type VoiceLineRequest = VoiceLine;
 
 pub(super) struct GameQueueActor {
     pub tts: TtsCoordinator,
@@ -93,9 +102,7 @@ impl GameQueueActor {
                     Ok(())
                 }
                 GameSessionError::RvcNotInitialised => {
-                    tracing::warn!(
-                        "A RVC post-process step was requested, but no provider is available to service it"
-                    );
+                    tracing::warn!("A RVC post-process step was requested, but no provider is available to service it");
                     Ok(())
                 }
                 e => {
@@ -115,7 +122,7 @@ impl GameQueueActor {
     #[tracing::instrument(skip(self))]
     async fn handle_request(
         &mut self,
-        next_item: VoiceLine,
+        next_item: VoiceLineRequest,
         respond: Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>,
     ) -> GameResult<()> {
         let game_response = Arc::new(self.cache_or_request(next_item).await?);
@@ -129,9 +136,13 @@ impl GameQueueActor {
 
     /// Either use a cached TTS line, or generate a new one based on the given `voice_line`.
     #[tracing::instrument(skip(self))]
-    async fn cache_or_request(&mut self, voice_line: VoiceLine) -> GameResult<TtsResponse> {
+    async fn cache_or_request(&mut self, voice_line: VoiceLineRequest) -> GameResult<TtsResponse> {
         // First check if we have a cache reference
-        if let Some(response) = self.data.try_cache_retrieve(&voice_line).await? {
+        if let Some(response) = self
+            .data
+            .try_cache_retrieve(self.data.game_db.writer(), &voice_line)
+            .await?
+        {
             return Ok(response);
         }
 
@@ -145,7 +156,9 @@ impl GameQueueActor {
 
         let voice_to_use = match &voice_line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
-            TtsVoice::CharacterVoice(character) => self.data.map_character(character).await?,
+            TtsVoice::CharacterVoice(character) => {
+                self.data.map_character(self.data.game_db.writer(), character).await?
+            }
         };
         let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;
 
@@ -170,7 +183,7 @@ impl GameQueueActor {
             voice_reference: vec![sample],
             speed: None,
         };
-        tracing::info!("Going to request");
+
         let mut response = None;
         for i in 0..3 {
             let response_gen = self.tts.tts_request(voice_line.model, request.clone()).await?;
@@ -196,8 +209,10 @@ impl GameQueueActor {
         let Some(response) = response else {
             return Err(GameSessionError::IncorrectGeneration);
         };
-        tracing::info!("Transforming response");
-        let out = self.transform_response(voice_to_use, voice_line, response).await?;
+
+        let out = self
+            .finalise_response(self.data.game_db.writer(), voice_to_use, voice_line, response)
+            .await?;
         // Once in a while save our line cache in case it crashes.
         self.generations_count += 1;
         if self.generations_count > 20 {
@@ -293,8 +308,9 @@ impl GameQueueActor {
     }
 
     /// Transfer a TTS file from its temporary directory to a permanent one and track its contents
-    async fn transform_response(
-        &mut self,
+    async fn finalise_response(
+        &self,
+        tx: &impl WriteConnection,
         voice: VoiceReference,
         line: VoiceLine,
         response: BackendTtsResponse,
@@ -306,32 +322,36 @@ impl GameQueueActor {
             TtsResult::File(temp_path) => {
                 // TODO: Perhaps think of a better method to naming the generated lines
                 let current_time = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
+                let file_name = {
+                    let ext = temp_path.extension();
+                    let mut new_name = std::ffi::OsString::from(current_time.to_string());
+                    new_name.push(".");
+                    if let Some(ext) = ext {
+                        new_name.push(ext);
+                    } else {
+                        // Assume wav
+                        new_name.push("wav");
+                    }
 
-                let file_name = format!("{}.wav", current_time);
-                let target_voice_file = target_dir.join(&file_name);
+                    new_name.to_string_lossy().into_owned()
+                };
+                let target_voice_file = target_dir.join(&*file_name);
 
                 // Move the file to its permanent spot, and add it to the tracking
                 tokio::fs::rename(&temp_path, &target_voice_file).await?;
 
                 let voice_used = voice.name.clone();
 
-                let old_value = self
-                    .data
-                    .line_cache
-                    .lock()
-                    .await
-                    .voice_to_line
-                    .entry(voice)
-                    .or_default()
-                    .insert(line.line.clone(), file_name);
+                let voice_line_db = db::voice_lines::ActiveModel {
+                    id: Default::default(),
+                    dialogue_text: line.line.clone().into_active_value(),
+                    voice_name: voice.name.into_active_value(),
+                    voice_location: voice.location.to_string_value().into_active_value(),
+                    file_name: file_name.into_active_value(),
+                };
 
-                // Delete old lines if they existed (e.g., this was forcefully regenerated)
-                if let Some(old_line) = old_value {
-                    tracing::debug!(?old_line, "Deleting old line for new generation");
-                    let target_voice_file = target_dir.join(&old_line);
-                    // If it fails we don't care.
-                    let _ = tokio::fs::remove_file(target_voice_file).await;
-                }
+                // DB Constraint replaces line if it already exists TODO: Reap unreferenced voice files
+                voice_line_db.insert(tx).await?;
 
                 Ok(TtsResponse {
                     file_path: target_voice_file,

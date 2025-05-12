@@ -15,7 +15,7 @@ impl EntityName for Entity {
 pub struct Model {
     pub id: i32,
     pub character_name: String,
-    pub character_gender: Option<String>,
+    pub character_gender: String,
     pub voice_name: String,
     pub voice_location: String,
 }
@@ -52,7 +52,7 @@ impl ColumnTrait for Column {
         match self {
             Self::Id => ColumnType::Integer.def(),
             Self::CharacterName => ColumnType::Text.def(),
-            Self::CharacterGender => ColumnType::Text.def().null(),
+            Self::CharacterGender => ColumnType::Text.def(),
             Self::VoiceName => ColumnType::Text.def(),
             Self::VoiceLocation => ColumnType::Text.def(),
         }

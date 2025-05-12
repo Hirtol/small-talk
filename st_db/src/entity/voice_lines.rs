@@ -14,7 +14,7 @@ impl EntityName for Entity {
 #[derive(Clone, Debug, PartialEq, DeriveModel, DeriveActiveModel, Eq)]
 pub struct Model {
     pub id: i32,
-    pub dialogue_id: i32,
+    pub dialogue_text: String,
     pub voice_name: String,
     pub voice_location: String,
     pub file_name: String,
@@ -23,7 +23,7 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
 pub enum Column {
     Id,
-    DialogueId,
+    DialogueText,
     VoiceName,
     VoiceLocation,
     FileName,
@@ -42,16 +42,14 @@ impl PrimaryKeyTrait for PrimaryKey {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
-pub enum Relation {
-    Dialogue,
-}
+pub enum Relation {}
 
 impl ColumnTrait for Column {
     type EntityName = Entity;
     fn def(&self) -> ColumnDef {
         match self {
             Self::Id => ColumnType::Integer.def(),
-            Self::DialogueId => ColumnType::Integer.def(),
+            Self::DialogueText => ColumnType::Text.def(),
             Self::VoiceName => ColumnType::Text.def(),
             Self::VoiceLocation => ColumnType::Text.def(),
             Self::FileName => ColumnType::Text.def(),
@@ -61,18 +59,7 @@ impl ColumnTrait for Column {
 
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
-        match self {
-            Self::Dialogue => Entity::belongs_to(super::dialogue::Entity)
-                .from(Column::DialogueId)
-                .to(super::dialogue::Column::Id)
-                .into(),
-        }
-    }
-}
-
-impl Related<super::dialogue::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Dialogue.def()
+        panic!("No RelationDef")
     }
 }
 

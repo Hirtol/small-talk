@@ -30,6 +30,8 @@ serde_json = { workspace = true }
 # Persistence
 st_db = { path = "../st_db"}
 sea-orm.workspace = true
+sea-query = { workspace = true }
+
 # diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 # libsqlite3-sys = { version = "0.31.0", features = ["bundled"] }
 
