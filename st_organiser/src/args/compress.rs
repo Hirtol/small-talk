@@ -24,6 +24,7 @@ impl CompressCommand {
         let lines_backup = game_dir.join("lines_wav_backup");
         let (game_data, line_cache, db) = st_system::session::GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
         let shared_data = st_system::session::GameSharedData {
+            game_db: db,
             config: config.dirs.clone(),
             voice_manager: Arc::new(VoiceManager::new(config.dirs.clone())),
             game_data,
