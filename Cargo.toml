@@ -29,7 +29,7 @@ tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
 
 # Database
-sea-orm = "1"
+sea-orm = { version = "1", features = ["sqlite-use-returning-for-3_35"] }
 sea-query = { version = "0.32", features = ["with-uuid", "with-chrono", "with-time", "with-json", "with-rust_decimal"] }
 sqlx = { version = "0.8.5", features = ["runtime-tokio-rustls", "sqlite"] }
 

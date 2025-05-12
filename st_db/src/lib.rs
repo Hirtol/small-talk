@@ -68,7 +68,7 @@ impl<T: EntityTrait> EntityExt for T where <Self::PrimaryKey as PrimaryKeyTrait>
 // Needed to ensure we don't repeat ourselves everywhere...
 pub trait SelectExt<E: EntityTrait> {
     /// Return a single object, or error out with [DbErr::RecordNotFound] if no record exists.
-    async fn one_or_err<'a, C>(self, db: &C) -> Result<E::Model, DbErr>
+    fn one_or_err<'a, C>(self, db: &C) -> impl std::future::Future<Output = Result<E::Model, DbErr>> + Send
     where
         C: ConnectionTrait;
 
@@ -86,13 +86,15 @@ pub trait SelectExt<E: EntityTrait> {
 }
 
 impl<E: EntityTrait> SelectExt<E> for Select<E> {
-    async fn one_or_err<'a, C>(self, db: &C) -> Result<E::Model, DbErr>
+    fn one_or_err<'a, C>(self, db: &C) -> impl std::future::Future<Output = Result<E::Model, DbErr>> + Send
     where
         C: ConnectionTrait,
     {
-        self.one(db)
-            .await?
-            .ok_or_else(|| DbErr::RecordNotFound("No record found".to_string()))
+        async move {
+            self.one(db)
+                .await?
+                .ok_or_else(|| DbErr::RecordNotFound("No record found".to_string()))
+        }
     }
 
     fn offset_paginate<C, I>(self, limit: I, db: &C) -> OffsetPaginator<C, E>

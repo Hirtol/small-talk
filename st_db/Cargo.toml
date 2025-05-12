@@ -7,7 +7,7 @@ readme.workspace = true
 repository.workspace = true
 
 [dependencies]
-sea-orm = { workspace = true, features = ["sea-orm-internal", "sqlx-sqlite", "with-uuid"] }
+sea-orm = { workspace = true, features = ["sea-orm-internal", "sqlx-sqlite", "with-uuid", "sqlite-use-returning-for-3_35"] }
 sqlx = { workspace = true }
 eyre.workspace = true
 futures = { workspace = true }

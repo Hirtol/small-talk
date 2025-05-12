@@ -237,34 +237,3 @@ impl DroppableState for TemporaryState {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::process::Stdio;
-    use std::time::Duration;
-    use process_wrap::tokio::TokioChildWrapper;
-    use tokio::io::AsyncWriteExt;
-    use tokio::process::Command;
-    use crate::tts_backends::alltalk::AllTalkConfig;
-    use crate::tts_backends::alltalk::local::{AllTalkMessage, LocalAllTalkConfig, LocalAllTalkHandle};
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    pub async fn basic_test() {
-        let cfg = LocalAllTalkConfig {
-            instance_path: r"G:\TTS\alltalk_tts\".into(),
-            timeout: Duration::from_secs(2),
-            api: AllTalkConfig::new("http://localhost:7581".try_into().unwrap()),
-        };
-
-        let handle = LocalAllTalkHandle::new(cfg).unwrap();
-        
-        handle.send.send(AllTalkMessage::StartInstance).await.unwrap();
-        
-        tokio::time::sleep(Duration::from_secs(5)).await;
-
-        handle.send.send(AllTalkMessage::StopInstance).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        drop(handle)
-    }
-}

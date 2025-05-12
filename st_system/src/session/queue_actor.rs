@@ -157,7 +157,7 @@ impl GameQueueActor {
         let voice_to_use = match &voice_line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
             TtsVoice::CharacterVoice(character) => {
-                self.data.map_character(self.data.game_db.writer(), character).await?
+                self.data.map_character(self.data.game_db.writer(), character).await?.into()
             }
         };
         let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;

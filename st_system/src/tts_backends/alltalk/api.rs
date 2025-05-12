@@ -183,23 +183,3 @@ pub struct Voices {
     pub status: String,
     pub voices: Vec<String>,
 }
-
-#[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-    use reqwest::Url;
-    use crate::system::tts_backends::alltalk::AllTalkConfig;
-    use crate::system::tts_backends::alltalk::api::{AllTalkApi, TtsRequest};
-
-    #[tokio::test]
-    pub async fn test_live() {
-        let api = AllTalkApi::new(AllTalkConfig::new(Url::from_str("http://localhost:7851").unwrap())).unwrap();
-        
-        assert!(api.ready().await.unwrap());
-        
-        println!("Settings: {:#?}", api.current_settings().await.unwrap());
-        println!("Voices: {:#?}", api.voices().await.unwrap());
-        
-        println!("Gen: {:#?}", api.tts_request(TtsRequest::default()).await.unwrap())
-    }
-}

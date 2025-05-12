@@ -217,7 +217,12 @@ impl PlaybackEngine {
         self.current_sound = None;
         self.current_track = Some(track);
         self.current_settings = Some(playback_s);
-        tokio::task::spawn(async move { session.request_tts_with_channel(request.line, snd).await });
+
+        tokio::task::spawn(async move {
+            if let Err(e) = session.request_tts_with_channel(request.line, snd).await {
+                tracing::error!(?e, "Failed to request TTS for playback");
+            }
+        });
         self.current_request = Some(rcv);
 
         Ok(())
