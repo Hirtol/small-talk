@@ -1,64 +1,100 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use sea_orm::{ColumnTrait, EntityTrait, QuerySelect, QueryTrait};
 use serde::de::Error;
+use st_db::{ReadConnection, WriteConnection};
+use crate::config::TtsSystemConfig;
+use crate::session::db;
+use crate::session::db::SessionDb;
+use crate::TtsResponse;
 use crate::voice_manager::{VoiceDestination, VoiceReference};
+use sea_orm::QueryFilter;
 
-#[derive(Debug, Clone, Default)]
+pub struct LineCacheEntry {
+    pub text: String,
+    pub voice: VoiceReference,
+}
+
+#[derive(Debug, Clone)]
 pub struct LineCache {
-    /// Voice -> Line voiced -> file name
-    pub voice_to_line: HashMap<VoiceReference, HashMap<String, String>>,
+    game_db: SessionDb,
+    game_name: String,
+    config: Arc<TtsSystemConfig>
 }
 
-// Needed in order to properly handle VoiceReference
-impl Serialize for LineCache {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Create a temporary HashMap<String, HashMap<String, String>>
-        let transformed: HashMap<String, HashMap<String, String>> = self
-            .voice_to_line
-            .iter()
-            .map(|(key, value)| {
-                let key_str = match &key.location {
-                    VoiceDestination::Global => format!("global_{}", key.name),
-                    VoiceDestination::Game(game_name) => format!("game_{game_name}_{}", key.name),
-                };
-                (key_str, value.clone())
-            })
-            .collect();
-
-        transformed.serialize(serializer)
+impl LineCache {
+    pub fn new(game_name: String, config: Arc<TtsSystemConfig>, game_db: SessionDb) -> Self {
+        Self {
+            game_db,
+            game_name,
+            config,
+        }
     }
-}
 
-impl<'de> Deserialize<'de> for LineCache {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Deserialize into a temporary HashMap<String, HashMap<String, String>>
-        let raw_map: HashMap<String, HashMap<String, String>> = HashMap::deserialize(deserializer)?;
+    /// Attempt to retrieve an existing TTS response from the database
+    ///
+    /// If no cached line is found will return `Ok(None)`.
+    pub async fn try_retrieve(&self, tx: &impl ReadConnection, entry: LineCacheEntry) -> eyre::Result<Option<TtsResponse>> {
+        let out = db::voice_lines::Entity::find()
+            .filter(db::lines_table_voice_line_condition(&entry.text, &entry.voice))
+            .one(tx)
+            .await?;
 
-        // Convert back to HashMap<VoiceReference, HashMap<String, String>>
-        let voice_to_line = raw_map
-            .into_iter()
-            .map(|(key, value)| {
-                let (location, name) = if let Some(rest) = key.strip_prefix("global_") {
-                    (VoiceDestination::Global, rest.to_string())
-                } else if let Some(rest) = key.strip_prefix("game_") {
-                    let (game_name, character) = rest
-                        .split_once("_")
-                        .ok_or_else(|| D::Error::custom("No game identifier found"))?;
-                    (VoiceDestination::Game(game_name.into()), character.to_string())
-                } else {
-                    return Err(serde::de::Error::custom(format!("Invalid key format: {}", key)));
-                };
+        Ok(out.map(|v| {
+            let target_voice_file = self.lines_voice_path(&entry.voice).join(v.file_name);
 
-                Ok((VoiceReference { name, location }, value))
-            })
-            .collect::<Result<HashMap<_, _>, D::Error>>()?;
+            TtsResponse {
+                file_path: target_voice_file,
+                line: entry.text,
+                voice_used: entry.voice,
+            }
+        }))
+    }
 
-        Ok(LineCache { voice_to_line })
+    /// Remove all cached lines matching the given `items`.
+    pub async fn invalidate_cache_lines(&self, tx: &impl WriteConnection, items: impl IntoIterator<Item=LineCacheEntry>) -> eyre::Result<()> {
+        // N queries, could be more efficient...
+        for item in items {
+            self.invalidate_cache_line(tx, &item).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn invalidate_cache_line(&self, tx: &impl WriteConnection, line: &LineCacheEntry) -> eyre::Result<()> {
+        use st_db::entity::*;
+
+        let deleted_models = voice_lines::Entity::delete_many()
+            .filter(
+                voice_lines::Column::Id.in_subquery(
+                    voice_lines::Entity::find()
+                        .select_only()
+                        .column(voice_lines::Column::Id)
+                        .filter(db::lines_table_voice_line_condition(&line.text, &line.voice))
+                        .into_query(),
+                ),
+            )
+            .exec_with_returning(tx)
+            .await?;
+        // Delete old voice files that are no longer needed.
+        for model in deleted_models {
+            let target_voice_file = self.lines_voice_path(&line.voice).join(model.file_name);
+            if let Err(e) = tokio::fs::remove_file(&target_voice_file).await {
+                tracing::warn!(?target_voice_file, ?e, "Failed to delete invalidated voice line")
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns the path to the directory containing all spoken dialogue by the given [VoiceReference]
+    pub fn lines_voice_path(&self, voice: &VoiceReference) -> PathBuf {
+        self.line_cache_path().join(&voice.name)
+    }
+
+    fn line_cache_path(&self) -> PathBuf {
+        self.config.game_lines_cache(&self.game_name)
     }
 }

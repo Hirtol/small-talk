@@ -14,8 +14,10 @@ pub type CharacterName = String;
 pub struct TtsResponse {
     /// Local file path to the generated line 
     pub file_path: PathBuf,
-    pub line: VoiceLine,
-    pub voice_used: Voice,
+    /// Text of the generated line
+    pub line: String,
+    /// Voice used for the generation of the line
+    pub voice_used: VoiceReference,
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]

@@ -374,6 +374,11 @@ impl FsVoiceData {
         Ok(output)
     }
 
+    /// Try and find a set of voice samples which match the given `emotion`.
+    ///
+    /// # Returns
+    ///
+    /// An iterator in the order of most-to-least matching order for the given `emotion`.
     pub fn try_emotion_sample(&self, emotion: BasicEmotion) -> eyre::Result<impl Iterator<Item=Vec<FsVoiceSample>> + use<>> {
         let mut samples = self.get_samples()?;
 

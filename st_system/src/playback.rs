@@ -174,17 +174,8 @@ impl PlaybackEngine {
     async fn handle_tts_sample(&mut self, tts: Arc<TtsResponse>) -> eyre::Result<()> {
         let Ok(file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
-            // We'll just request a regeneration of this line
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
-            let session = self.session()?;
-            let mut new_line = tts.line.clone();
-            new_line.force_generate = true;
-
-            self.start_playback_request(PlaybackVoiceLine {
-                line: new_line,
-                playback: self.current_settings.clone()
-            }, session).await?;
-            return Ok(())
+            return Ok(());
         };
 
         self.current_request = None;
@@ -235,13 +226,16 @@ impl PlaybackEngine {
     }
 }
 
+/// The environment which we should simulate through reverb/filters
+///
+/// # Variants
+/// * `Outdoors` - No applied reverb
+/// * `Indoors` - Modicum of reverb
+/// * `Cave` - Large amount of reverb
 #[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum PlaybackEnvironment {
-    /// No applied reverb
     Outdoors,
-    /// Modicum of reverb
     Indoors,
-    /// Large amount of reverb
     Cave
 }
 

@@ -18,6 +18,8 @@ impl EmotionBackend {
     }
 
     /// Try to (batch) classify all the given texts, returning a [Vec] containing the emotions for the texts in-order.
+    ///
+    /// Will block until everything is classified.
     pub fn classify_emotion(&mut self, texts: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<BasicEmotion>, EmotionError> {
         let mut lock = self.model.lock().expect("Poisoned");
         Ok(lock.infer(texts)?)

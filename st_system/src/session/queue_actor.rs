@@ -2,7 +2,9 @@ use crate::{
     data::TtsModel, emotion::EmotionBackend, error::GameSessionError, postprocessing,
     postprocessing::AudioData,
     rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
-    session::{db, db::DbEnumHelper, order_channel::OrderedReceiver, GameResult, GameSharedData},
+    session::{
+        db, db::DbEnumHelper, linecache::LineCacheEntry, order_channel::OrderedReceiver, GameResult, GameSharedData,
+    },
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
     voice_manager::VoiceReference,
     PostProcessing,
@@ -25,12 +27,23 @@ pub type SingleRequest = (
     tracing::Span,
 );
 
-// pub struct VoiceLineRequest {
-//     pub dialogue_db_id: DbId,
-//     pub line: VoiceLine
-// }
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct VoiceLineRequest {
+    pub text: String,
+    pub speaker: VoiceReference,
+    pub model: TtsModel,
+    /// Optional audio post-processing
+    pub post: Option<PostProcessing>,
+}
 
-pub type VoiceLineRequest = VoiceLine;
+impl VoiceLineRequest {
+    pub fn to_line_cache(&self) -> LineCacheEntry {
+        LineCacheEntry {
+            text: self.text.clone(),
+            voice: self.speaker.clone(),
+        }
+    }
+}
 
 pub(super) struct GameQueueActor {
     pub tts: TtsCoordinator,
@@ -64,8 +77,6 @@ impl GameQueueActor {
             }
         }
 
-        self.data.save_cache().await?;
-        self.data.save_state().await?;
         self.save_queue().await?;
 
         Ok(())
@@ -108,8 +119,6 @@ impl GameQueueActor {
                 e => {
                     // First persist our data
                     tracing::error!(game=?self.data.game_data.game_name, "Stopping GameQueueActor actor due to unknown error");
-                    self.data.save_cache().await?;
-                    self.data.save_state().await?;
                     self.save_queue().await?;
                     // Then bail
                     eyre::bail!(e)
@@ -119,34 +128,35 @@ impl GameQueueActor {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, respond))]
     async fn handle_request(
         &mut self,
         next_item: VoiceLineRequest,
         respond: Option<tokio::sync::oneshot::Sender<Arc<TtsResponse>>>,
     ) -> GameResult<()> {
-        let game_response = Arc::new(self.cache_or_request(next_item).await?);
+        // First check if we have a cache reference
+        let tts_response = if let Some(cache) = self
+            .data
+            .line_cache
+            .try_retrieve(self.data.game_db.reader(), next_item.to_line_cache())
+            .await?
+        {
+            cache
+        } else {
+            self.execute_request(next_item).await?
+        };
+
         if let Some(response_channel) = respond {
             // If the consumer drops the other end we don't care
-            let _ = response_channel.send(game_response.clone());
+            let _ = response_channel.send(Arc::new(tts_response));
         }
 
         Ok(())
     }
 
-    /// Either use a cached TTS line, or generate a new one based on the given `voice_line`.
+    /// Generate a new line based on the given `voice_line`.
     #[tracing::instrument(skip(self))]
-    async fn cache_or_request(&mut self, voice_line: VoiceLineRequest) -> GameResult<TtsResponse> {
-        // First check if we have a cache reference
-        if let Some(response) = self
-            .data
-            .try_cache_retrieve(self.data.game_db.writer(), &voice_line)
-            .await?
-        {
-            return Ok(response);
-        }
-
-        tracing::debug!("No cache available, requesting from TTS");
+    async fn execute_request(&mut self, voice_line: VoiceLineRequest) -> GameResult<TtsResponse> {
         // If we want to use RVC we'll try and warm it up before the TTS request to save time
         if let Some(post) = &voice_line.post {
             if let Some(rvc) = &post.rvc {
@@ -154,15 +164,9 @@ impl GameQueueActor {
             }
         }
 
-        let voice_to_use = match &voice_line.person {
-            TtsVoice::ForceVoice(forced) => forced.clone(),
-            TtsVoice::CharacterVoice(character) => {
-                self.data.map_character(self.data.game_db.writer(), character).await?.into()
-            }
-        };
-        let voice = self.data.voice_manager.get_voice(voice_to_use.clone())?;
+        let voice = self.data.voice_manager.get_voice(voice_line.speaker.clone())?;
 
-        let emotion = self.emotion.classify_emotion([&voice_line.line])?[0];
+        let emotion = self.emotion.classify_emotion([&voice_line.text])?[0];
         tracing::debug!(?emotion, "Identified emotion in line");
 
         let sample = voice
@@ -178,7 +182,7 @@ impl GameQueueActor {
         let sample_path = sample.sample.clone();
         // TODO: Configurable language
         let request = BackendTtsRequest {
-            gen_text: voice_line.line.clone(),
+            gen_text: voice_line.text.clone(),
             language: "en".to_string(),
             voice_reference: vec![sample],
             speed: None,
@@ -211,15 +215,8 @@ impl GameQueueActor {
         };
 
         let out = self
-            .finalise_response(self.data.game_db.writer(), voice_to_use, voice_line, response)
+            .finalise_response(self.data.game_db.writer(), voice_line.speaker, voice_line.text, response)
             .await?;
-        // Once in a while save our line cache in case it crashes.
-        self.generations_count += 1;
-        if self.generations_count > 20 {
-            self.generations_count = 0;
-            self.save_queue().await?;
-            self.data.save_cache().await?
-        }
 
         Ok(out)
     }
@@ -230,7 +227,7 @@ impl GameQueueActor {
     #[tracing::instrument(skip_all)]
     async fn postprocess(
         &mut self,
-        voice_line: &VoiceLine,
+        voice_line: &VoiceLineRequest,
         voice_sample: PathBuf,
         post_processing: &PostProcessing,
         response: BackendTtsResponse,
@@ -244,14 +241,14 @@ impl GameQueueActor {
             TtsResult::File(temp_path) => {
                 // First we check with Whisper (if desired) matches our prompt.
                 if let Some(percent) = post_processing.verify_percentage {
-                    let score = self.tts.verify_prompt(&temp_path, &voice_line.line).await?;
+                    let score = self.tts.verify_prompt(&temp_path, &voice_line.text).await?;
                     tracing::trace!(?score, "Whisper TTS match");
                     // There will obviously be transcription errors, so we choose a relatively
                     if score < (percent as f32 / 100.0) {
                         return Err(GameSessionError::IncorrectGeneration);
                     }
                 }
-                tracing::info!("Post process");
+
                 // Then we run our audio post-processing to clean it up for human ears.
                 tokio::task::spawn_blocking(move || {
                     let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
@@ -278,7 +275,7 @@ impl GameQueueActor {
             }
             TtsResult::Stream => unimplemented!("Streams are not yet supported"),
         };
-        tracing::info!("Post process RVC");
+
         if let Some(rvc) = &post_processing.rvc {
             let req = BackendRvcRequest {
                 audio: new_audio,
@@ -312,10 +309,10 @@ impl GameQueueActor {
         &self,
         tx: &impl WriteConnection,
         voice: VoiceReference,
-        line: VoiceLine,
+        text: String,
         response: BackendTtsResponse,
     ) -> eyre::Result<TtsResponse> {
-        let target_dir = self.data.lines_voice_path(&voice);
+        let target_dir = self.data.line_cache.lines_voice_path(&voice);
         tokio::fs::create_dir_all(&target_dir).await?;
 
         match response.result {
@@ -340,13 +337,11 @@ impl GameQueueActor {
                 // Move the file to its permanent spot, and add it to the tracking
                 tokio::fs::rename(&temp_path, &target_voice_file).await?;
 
-                let voice_used = voice.name.clone();
-
                 let voice_line_db = db::voice_lines::ActiveModel {
                     id: Default::default(),
-                    dialogue_text: line.line.clone().into_active_value(),
-                    voice_name: voice.name.into_active_value(),
-                    voice_location: voice.location.to_string_value().into_active_value(),
+                    dialogue_text: text.clone().into_active_value(),
+                    voice_name: voice.name.clone().into_active_value(),
+                    voice_location: voice.location.clone().to_string_value().into_active_value(),
                     file_name: file_name.into_active_value(),
                 };
 
@@ -355,8 +350,8 @@ impl GameQueueActor {
 
                 Ok(TtsResponse {
                     file_path: target_voice_file,
-                    line,
-                    voice_used,
+                    line: text,
+                    voice_used: voice,
                 })
             }
             TtsResult::Stream => unimplemented!("Implement stream handling (still want to cache the output as well!)"),
@@ -387,7 +382,7 @@ impl GameQueueActor {
 
         self.queue
             .modify_contents(|data| {
-                let to_save: Vec<VoiceLine> = serde_json::from_slice(&std::fs::read(q_path)?)?;
+                let to_save: Vec<VoiceLineRequest> = serde_json::from_slice(&std::fs::read(q_path)?)?;
                 data.extend(to_save.into_iter().map(|v| (v, None, tracing::Span::current())));
                 Ok::<_, eyre::Error>(())
             })
