@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use sea_orm::{ColumnTrait, EntityTrait, QuerySelect, QueryTrait};
+use sea_orm::{ColumnTrait, EntityTrait, IntoActiveValue, QuerySelect, QueryTrait};
 use serde::de::Error;
 use st_db::{ReadConnection, WriteConnection};
 use crate::config::TtsSystemConfig;
@@ -87,6 +87,42 @@ impl LineCache {
         }
 
         Ok(())
+    }
+
+    /// Update the given cache entry with a new file name.
+    pub async fn update_cache_line_path(&self, entry: LineCacheEntry, new_file_name: String) -> eyre::Result<()> {
+        let model = db::voice_lines::ActiveModel {
+            file_name: new_file_name.into_active_value(),
+            .. Default::default()
+        };
+
+        db::voice_lines::Entity::update_many()
+            .set(model)
+            .filter(db::lines_table_voice_line_condition(&entry.text, &entry.voice))
+            .exec(self.game_db.writer())
+            .await?;
+
+        Ok(())
+    }
+
+    /// Return all lines saved in this [LineCache].
+    pub async fn all_lines(&self) -> eyre::Result<HashMap<VoiceReference, Vec<db::voice_lines::Model>>> {
+        let lines = db::voice_lines::Entity::find().all(self.game_db.reader()).await?;
+
+        let mut map: HashMap<VoiceReference, Vec<db::voice_lines::Model>> = HashMap::new();
+
+        for line in lines {
+            let key = VoiceReference {
+                name: line.voice_name.clone(),
+                location: line.voice_location.clone().into(),
+            };
+
+            map.entry(key)
+                .or_default()
+                .push(line);
+        }
+
+        Ok(map)
     }
 
     /// Returns the path to the directory containing all spoken dialogue by the given [VoiceReference]

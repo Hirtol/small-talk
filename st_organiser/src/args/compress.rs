@@ -1,10 +1,16 @@
-use std::sync::Arc;
 use eyre::ContextCompat;
 use itertools::Itertools;
 use path_abs::PathInfo;
 use rayon::prelude::*;
 use st_http::config::SharedConfig;
-use st_system::voice_manager::{VoiceManager, VoiceReference};
+use st_system::{
+    session::{
+        linecache::{LineCache, LineCacheEntry},
+        GameData,
+    },
+    voice_manager::{VoiceManager, VoiceReference},
+};
+use std::sync::Arc;
 
 #[derive(clap::Args, Debug)]
 pub struct CompressCommand {
@@ -14,7 +20,7 @@ pub struct CompressCommand {
     game_name: String,
     /// Exclude a particular voice if it matches (part of) the given string.
     #[clap(long)]
-    filter_exclude: Option<String>
+    filter_exclude: Option<String>,
 }
 
 impl CompressCommand {
@@ -22,41 +28,62 @@ impl CompressCommand {
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
         let game_dir = config.dirs.game_dir(&self.game_name);
         let lines_backup = game_dir.join("lines_wav_backup");
-        let (game_data, line_cache, db) = st_system::session::GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
+        let (game_data, db) = GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
+        let line_cache = Arc::new(LineCache::new(
+            self.game_name.to_string(),
+            config.dirs.clone(),
+            db.clone(),
+        ));
         let shared_data = st_system::session::GameSharedData {
             game_db: db,
             config: config.dirs.clone(),
             voice_manager: Arc::new(VoiceManager::new(config.dirs.clone())),
             game_data,
-            line_cache: Arc::new(tokio::sync::Mutex::new(line_cache)),
+            line_cache: line_cache.clone(),
         };
 
-        let mut lock = shared_data.line_cache.lock().await;
+        let rt = tokio::runtime::Handle::current();
 
-        for (voice, lines) in &mut lock.voice_to_line {
-            if self.filter_exclude.as_ref().map(|filter| voice.name.contains(filter)).unwrap_or_default() {
+        for (voice, mut lines) in line_cache.all_lines().await? {
+            if self
+                .filter_exclude
+                .as_ref()
+                .map(|filter| voice.name.contains(filter))
+                .unwrap_or_default()
+            {
                 tracing::debug!(?voice, "Skipping voice as it matched the exclude filter");
-                continue
+                continue;
             }
 
-            let voice_line_dir = shared_data.lines_voice_path(voice);
+            let voice_line_dir = shared_data.line_cache.lines_voice_path(&voice);
             let dir_name = voice_line_dir.file_name().context("No filename")?.to_string_lossy();
             let backup_dir = lines_backup.join(format!("{dir_name}"));
             std::fs::create_dir_all(&backup_dir)?;
 
-            tracing::info!(?voice, "Compressing voice lines");
+            tracing::info!(?voice, ?lines, "Compressing voice lines");
 
-            if let Err(e) = lines.iter_mut()
+            if let Err(e) = lines
+                .into_iter()
                 .par_bridge()
-                .filter(|(_, file)| file.ends_with(".wav"))
-                .try_for_each(|(_, file)| {
-                    let wav_path = voice_line_dir.join(&file);
+                .filter(|model| model.file_name.ends_with(".wav"))
+                .try_for_each(|model| {
+                    tracing::debug!(?model, "Line");
+                    let wav_path = voice_line_dir.join(&model.file_name);
                     let backup_wav = wav_path.file_name().expect("Impossible");
                     let ogg_path = wav_path.with_extension("ogg");
 
+                    let cache_entry = LineCacheEntry {
+                        text: model.dialogue_text,
+                        voice: voice.clone(),
+                    };
+
+
                     // In case the process was interrupted
                     if ogg_path.exists() {
-                        *file = ogg_path.file_name().context("impossible")?.to_string_lossy().into();
+                        rt.block_on(line_cache.update_cache_line_path(
+                            cache_entry,
+                            ogg_path.file_name().context("impossible")?.to_string_lossy().into(),
+                        ))?;
                         let _ = std::fs::rename(&wav_path, backup_dir.join(backup_wav));
                         return Ok(());
                     }
@@ -68,19 +95,19 @@ impl CompressCommand {
                     let audio_data = st_system::postprocessing::AudioData::new(&mut wav_file)?;
 
                     audio_data.write_to_ogg_vorbis(&ogg_path, 0.6)?;
-                    *file = ogg_path.file_name().context("impossible")?.to_string_lossy().into();
+
+                    rt.block_on(line_cache.update_cache_line_path(
+                        cache_entry,
+                        ogg_path.file_name().context("impossible")?.to_string_lossy().into(),
+                    ))?;
 
                     std::fs::rename(&wav_path, backup_dir.join(backup_wav))?;
                     Ok::<_, eyre::Error>(())
-                }) {
-                drop(lock);
-                shared_data.save_cache().await?;
+                })
+            {
                 return Err(e);
             }
         }
-
-        drop(lock);
-        shared_data.save_cache().await?;
 
         Ok(())
     }
