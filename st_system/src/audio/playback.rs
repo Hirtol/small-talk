@@ -175,6 +175,8 @@ impl PlaybackEngine {
         let Ok(file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
+            self.current_request = None;
+            self.current_sound = None;
             return Ok(());
         };
 

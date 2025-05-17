@@ -3,14 +3,13 @@ use crate::{
     config::{Config, SharedConfig},
 };
 use axum::{
-    error_handling::HandleErrorLayer,
-    http::{header, HeaderValue, StatusCode},
+    error_handling::HandleErrorLayer, http::{header, HeaderValue, StatusCode},
     routing::{get_service, MethodRouter},
-    BoxError, Router,
+    BoxError,
+    Router,
 };
 use st_system::{
-    emotion::EmotionBackend,
-    rvc_backends::{
+    emotion::EmotionBackend, rvc_backends::{
         seedvc::local::{LocalSeedHandle, LocalSeedVcConfig},
         RvcCoordinator,
     },
@@ -19,9 +18,14 @@ use st_system::{
             local::{LocalAllTalkConfig, LocalAllTalkHandle},
             AllTalkConfig,
         },
+        indextts::{
+            api::IndexTtsApiConfig,
+            local::{LocalIndexHandle, LocalIndexTtsConfig},
+        },
         TtsCoordinator,
     },
-    TtsSystem, TtsSystemHandle,
+    TtsSystem,
+    TtsSystemHandle,
 };
 use std::{
     sync::{Arc, LazyLock},
@@ -49,7 +53,7 @@ impl Application {
 
         let xtts = config
             .xtts
-            .as_ref()
+            .as_opt()
             .map(|xtts| {
                 let all_talk_cfg = LocalAllTalkConfig {
                     instance_path: xtts.local_all_talk.clone(),
@@ -61,9 +65,15 @@ impl Application {
             })
             .transpose()?;
 
-        let tts_backend = TtsCoordinator::new(xtts, config.dirs.whisper_model.clone());
+        let index = config
+            .index_tts
+            .as_opt()
+            .map(|cfg| LocalIndexHandle::new(cfg.clone()))
+            .transpose()?;
 
-        let mut seedvc_cfg = config.seed_vc.as_ref().map(|seed_vc| LocalSeedVcConfig {
+        let tts_backend = TtsCoordinator::new(xtts, index, config.dirs.whisper_model.clone());
+
+        let mut seedvc_cfg = config.seed_vc.as_opt().map(|seed_vc| LocalSeedVcConfig {
             instance_path: seed_vc.local_path.clone(),
             timeout: seed_vc.timeout,
             api: seed_vc.config.clone(),

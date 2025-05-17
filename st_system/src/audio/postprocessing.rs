@@ -144,4 +144,24 @@ impl AudioData {
 
         Ok(())
     }
+
+    /// Applies a single-order lowpass filter
+    ///
+    /// # Arguments
+    /// * `cutoff_frequency` - The cutoff frequency of the lowpass filter in Hz.
+    pub fn lowpass_filter(&mut self, cutoff_frequency: f32) {
+        use biquad::{Biquad, Coefficients, DirectForm2Transposed, ToHertz, Type};
+        let q_value = biquad::coefficients::Q_BUTTERWORTH_F32;
+        let coeffs = Coefficients::<f32>::from_params(
+            Type::SinglePoleLowPass,
+            self.sample_rate.hz(),
+            cutoff_frequency.hz(),
+            q_value,
+        ).expect("Failed to construct filter");
+
+        let mut filter = DirectForm2Transposed::<f32>::new(coeffs);
+
+        self.samples.iter_mut()
+            .for_each(|x| *x = filter.run(*x));
+    }
 }

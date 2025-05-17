@@ -63,9 +63,30 @@ pub struct Config {
     #[serde(default)]
     pub dirs: Arc<TtsSystemConfig>,
     #[serde(default)]
-    pub xtts: Option<TtsConfig>,
+    pub xtts: SubsystemConfig<TtsConfig>,
     #[serde(default)]
-    pub seed_vc: Option<RvcConfig>,
+    pub index_tts: SubsystemConfig<st_system::tts_backends::indextts::local::LocalIndexTtsConfig>,
+    #[serde(default)]
+    pub seed_vc: SubsystemConfig<RvcConfig>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct SubsystemConfig<T> {
+    /// Whether this subsystem should be enabled or disabled.
+    pub enabled: bool,
+    #[serde(flatten)]
+    pub inner: T,
+}
+
+impl<T> SubsystemConfig<T> {
+    /// Turn this config into an [Option]. `Some` if `enabled` is true, `None` otherwise.
+    pub fn as_opt(&self) -> Option<&T> {
+        if self.enabled {
+            Some(&self.inner)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

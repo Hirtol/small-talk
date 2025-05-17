@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 use crate::error::{RvcError};
-use crate::postprocessing::AudioData;
+use crate::audio::postprocessing::AudioData;
 use crate::rvc_backends::seedvc::local::LocalSeedHandle;
 
 pub mod seedvc;

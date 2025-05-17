@@ -22,12 +22,12 @@ pub mod data;
 pub mod session;
 pub mod voice_manager;
 pub mod utils;
-pub mod playback;
 pub mod config;
 pub mod timeout;
 pub mod emotion;
-pub mod postprocessing;
 pub mod error;
+
+pub mod audio;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 

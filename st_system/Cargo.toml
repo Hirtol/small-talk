@@ -14,6 +14,8 @@ papaya = { version = "0.2.1", features = ["serde"] }
 rand = "0.9.0"
 strsim = "0.11.1"
 bytemuck = "1.21.0"
+regex = "1.6.0"
+
 
 tokio = { version = "1", features = [] }
 futures = { version = "0.3" }
@@ -30,6 +32,7 @@ serde_json = { workspace = true }
 
 # Persistence
 st_db = { path = "../st_db"}
+sqlx = "0.8.5"
 sea-orm.workspace = true
 sea-query = { workspace = true }
 
@@ -52,8 +55,12 @@ kira = { version = "0.10.2", features = ["ogg"] }
 wavers.workspace = true
 ebur128 = "0.1.10"
 vorbis_rs = "0.5.5"
+biquad = "0.4.0"
 
 # ML
 st_ml = {path = "../st_ml", features = ["cuda"]}
+bollard = "0.18.1"
 process-wrap = { version = "8.2", features = ["tokio1"] }
-sqlx = "0.8.5"
+
+[dev-dependencies]
+tracing-test = "0.2.5"

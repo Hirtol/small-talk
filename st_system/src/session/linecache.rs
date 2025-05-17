@@ -12,6 +12,7 @@ use crate::TtsResponse;
 use crate::voice_manager::{VoiceDestination, VoiceReference};
 use sea_orm::QueryFilter;
 
+#[derive(Debug)]
 pub struct LineCacheEntry {
     pub text: String,
     pub voice: VoiceReference,
@@ -65,7 +66,7 @@ impl LineCache {
 
     async fn invalidate_cache_line(&self, tx: &impl WriteConnection, line: &LineCacheEntry) -> eyre::Result<()> {
         use st_db::entity::*;
-
+        tracing::debug!(?line, "Invalidating line");
         let deleted_models = voice_lines::Entity::delete_many()
             .filter(
                 voice_lines::Column::Id.in_subquery(

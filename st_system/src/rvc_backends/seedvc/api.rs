@@ -1,7 +1,7 @@
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::postprocessing::AudioData;
+use crate::audio::postprocessing::AudioData;
 use crate::rvc_backends::{BackendRvcRequest};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

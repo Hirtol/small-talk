@@ -13,7 +13,7 @@ use axum::extract::{Path, State};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::VecDeque;
-use st_system::playback::{PlaybackSettings, PlaybackVoiceLine};
+use st_system::audio::playback::{PlaybackSettings, PlaybackVoiceLine};
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest(

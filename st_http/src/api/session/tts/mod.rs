@@ -26,17 +26,7 @@ impl From<ApiTtsRequest> for VoiceLine {
             person: value.person,
             model: value.model,
             force_generate: value.force_generate,
-            // For now assume these defaults.
-            // TODO make these configurable.
-            post: Some(PostProcessing {
-                verify_percentage: None,
-                trim_silence: true,
-                normalise: true,
-                rvc: Some(RvcOptions {
-                    model: RvcModel::SeedVc,
-                    high_quality: true,
-                }),
-            }),
+            post: value.post,
         }
     }
 }

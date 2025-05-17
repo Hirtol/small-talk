@@ -114,4 +114,5 @@ impl From<Gender> for DatabaseGender {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TtsModel {
     Xtts,
+    IndexTts
 }

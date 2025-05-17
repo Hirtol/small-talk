@@ -1,5 +1,5 @@
 use crate::{
-    config::TtsSystemConfig, data::TtsModel, emotion::EmotionBackend, error::GameSessionError, playback::PlaybackEngineHandle, postprocessing::AudioData, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
+    config::TtsSystemConfig, data::TtsModel, emotion::EmotionBackend, error::GameSessionError, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
     session::{
         db::{DatabaseGender, DbEnumHelper, SessionDb},
         linecache::LineCacheEntry,
@@ -39,6 +39,8 @@ use std::{
 };
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
 use tracing::log;
+use crate::audio::playback::PlaybackEngineHandle;
+use crate::audio::postprocessing::AudioData;
 
 const CONFIG_NAME: &str = "config.json";
 const DB_NAME: &str = "database.db";
@@ -292,6 +294,8 @@ impl GameTts {
         } else {
             self.data.try_cache_retrieve(&tx, &request).await?
         };
+        // Need to commit here to finalise the cache invalidation
+        tx.commit().await?;
 
         // First check if the cache already contains the required data
         if let Some(tts_response) = existing_line {
@@ -300,7 +304,7 @@ impl GameTts {
             // Otherwise send a priority request to our queue, clear any previous urgent requests and return them
             // to the lower priority queue.
             let vl_request = VoiceLineRequest {
-                speaker: self.data.extract_voice_reference(&tx, &request).await?,
+                speaker: self.data.extract_voice_reference(self.data.game_db.writer(), &request).await?,
                 text: request.line,
                 model: request.model,
                 post: request.post,
@@ -323,8 +327,6 @@ impl GameTts {
                     .await?;
             }
         };
-
-        tx.commit().await?;
 
         Ok(())
     }

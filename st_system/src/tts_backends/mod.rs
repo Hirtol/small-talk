@@ -2,15 +2,19 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
+use eyre::Context;
 use tokio::sync::Mutex;
 use st_ml::stt::WhisperTranscribe;
 use crate::error::TtsError;
 use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
 use crate::timeout::DroppableState;
 use crate::data::TtsModel;
+use crate::audio::postprocessing::AudioData;
+use crate::tts_backends::indextts::local::LocalIndexHandle;
 use crate::voice_manager::FsVoiceSample;
 
 pub mod alltalk;
+pub mod indextts;
 
 pub type Result<T> = std::result::Result<T, TtsError>;
 
@@ -18,6 +22,7 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 #[derive(Clone)]
 pub struct TtsCoordinator {
     pub xtts: Option<LocalAllTalkHandle>,
+    pub index_tts: Option<LocalIndexHandle>,
     whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
     whisper_path: PathBuf,
 }
@@ -26,9 +31,10 @@ impl TtsCoordinator {
     /// Create a new [TtsCoordinator]
     ///
     /// If no TtsBackend model is provided all requests will return with [TtsError::ModelNotInitialised].
-    pub fn new(xtts_all_talk: Option<LocalAllTalkHandle>, whisper_path: PathBuf) -> Self {
+    pub fn new(xtts_all_talk: Option<LocalAllTalkHandle>, index_tts: Option<LocalIndexHandle>, whisper_path: PathBuf) -> Self {
         Self {
             xtts: xtts_all_talk,
+            index_tts,
             whisper: Arc::new(Mutex::new(None)),
             whisper_path,
         }
@@ -46,6 +52,14 @@ impl TtsCoordinator {
                 };
                 Ok(xtts.submit_tts_request(req).await?)
             }
+            TtsModel::IndexTts => {
+                let Some(index) = &self.index_tts else {
+                    return Err(TtsError::ModelNotInitialised {
+                        model
+                    })
+                };
+                Ok(index.submit_tts_request(req).await?)
+            }
         }
     }
 
@@ -55,9 +69,21 @@ impl TtsCoordinator {
     /// # Returns
     ///
     /// A score in the range [0..1], where a higher score is a closer match.
-    pub async fn verify_prompt(&self, wav_file: impl Into<PathBuf>, original_prompt: &str) -> Result<f32> {
-        let whisp_clone = self.whisper.clone();
+    pub async fn verify_prompt_path(&self, wav_file: impl Into<PathBuf>, original_prompt: &str) -> Result<f32> {
         let wav_file = wav_file.into();
+        let mut reader: wavers::Wav<f32> = wavers::Wav::from_path(wav_file).context("Failed to read WAV file")?;
+
+        self.verify_prompt(AudioData::new(&mut reader)?, original_prompt).await
+    }
+
+    /// Check whether the given `wav` file contains speech data matching the `original_prompt`.
+    /// We calculate the Levenshtein distance and calculate its ratio compared to the original prompt-length
+    ///
+    /// # Returns
+    ///
+    /// A score in the range [0..1], where a higher score is a closer match.
+    pub async fn verify_prompt(&self, audio_data: AudioData, original_prompt: &str) -> Result<f32> {
+        let whisp_clone = self.whisper.clone();
         let whisp_path = self.whisper_path.clone();
 
         let output = tokio::task::spawn_blocking(move || {
@@ -67,11 +93,11 @@ impl TtsCoordinator {
                 None => {
                     let cpu_threads = std::thread::available_parallelism()?.get() / 2;
                     let mut model = WhisperTranscribe::new(whisp_path, cpu_threads as u16)?;
-                    let output = model.transcribe_file(wav_file);
+                    let output = model.infer(&audio_data.samples, audio_data.n_channels , audio_data.sample_rate);
                     *whisp = Some(model);
                     output
                 }
-                Some(model) => model.transcribe_file(wav_file)
+                Some(model) => model.infer(&audio_data.samples, audio_data.n_channels , audio_data.sample_rate)
             }
         }).await.map_err(|e| eyre::eyre!(e))??;
         // Can cause problems if we don't remove these for short quotes.
@@ -108,6 +134,7 @@ pub struct BackendTtsResponse {
 pub enum TtsResult {
     /// FS location of the output
     File(PathBuf),
+    Audio(AudioData),
     /// TODO, maybe
     Stream
 }

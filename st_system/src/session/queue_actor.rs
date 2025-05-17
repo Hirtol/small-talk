@@ -1,6 +1,5 @@
 use crate::{
-    data::TtsModel, emotion::EmotionBackend, error::GameSessionError, postprocessing,
-    postprocessing::AudioData,
+    data::TtsModel, emotion::EmotionBackend, error::GameSessionError,
     rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
     session::{
         db, db::DbEnumHelper, linecache::LineCacheEntry, order_channel::OrderedReceiver, GameResult, GameSharedData,
@@ -20,6 +19,8 @@ use sea_orm::{ActiveModelTrait, IntoActiveValue};
 use st_db::{DbId, WriteConnection, WriteTransaction};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
 use tracing::Instrument;
+use crate::audio::postprocessing;
+use crate::audio::postprocessing::AudioData;
 
 pub type SingleRequest = (
     VoiceLineRequest,
@@ -237,43 +238,48 @@ impl GameQueueActor {
 
         let timer = std::time::Instant::now();
 
-        let (new_audio, destination_path) = match response.result.clone() {
+        let mut original_audio_data = match response.result.clone() {
+            TtsResult::Audio(audio_data) => {
+                audio_data
+            }
             TtsResult::File(temp_path) => {
-                // First we check with Whisper (if desired) matches our prompt.
-                if let Some(percent) = post_processing.verify_percentage {
-                    let score = self.tts.verify_prompt(&temp_path, &voice_line.text).await?;
-                    tracing::trace!(?score, "Whisper TTS match");
-                    // There will obviously be transcription errors, so we choose a relatively
-                    if score < (percent as f32 / 100.0) {
-                        return Err(GameSessionError::IncorrectGeneration);
-                    }
+                let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path).context("Failed to read TTS file")?;
+                AudioData::new(&mut raw_audio_data)?
+            }
+            TtsResult::Stream => unimplemented!("Todo")
+        };
+
+        let mut new_audio = {
+            // First we check with Whisper (if desired) matches our prompt.
+            if let Some(percent) = post_processing.verify_percentage {
+                let score = self.tts.verify_prompt(original_audio_data.clone(), &voice_line.text).await?;
+                tracing::trace!(?score, "Whisper TTS match");
+                // There will obviously be transcription errors, so we choose a relatively
+                if score < (percent as f32 / 100.0) {
+                    return Err(GameSessionError::IncorrectGeneration);
+                }
+            }
+
+            // Then we run our audio post-processing to clean it up for human ears.
+            tokio::task::spawn_blocking(move || {
+                let mut sample_data: &mut [f32] = &mut original_audio_data.samples;
+
+                if should_trim {
+                    // Basically any signal should count.
+                    sample_data = postprocessing::trim_lead(sample_data, original_audio_data.n_channels, 0.01);
+                }
+                if should_normalise {
+                    postprocessing::loudness_normalise(
+                        sample_data,
+                        original_audio_data.sample_rate,
+                        original_audio_data.n_channels,
+                    );
                 }
 
-                // Then we run our audio post-processing to clean it up for human ears.
-                tokio::task::spawn_blocking(move || {
-                    let mut raw_audio_data = wavers::Wav::<f32>::from_path(&temp_path)?;
-                    let mut audio = AudioData::new(&mut raw_audio_data)?;
-                    let mut sample_data: &mut [f32] = &mut audio.samples;
-
-                    if should_trim {
-                        // Basically any signal should count.
-                        sample_data = postprocessing::trim_lead(sample_data, raw_audio_data.n_channels(), 0.01);
-                    }
-                    if should_normalise {
-                        postprocessing::loudness_normalise(
-                            sample_data,
-                            raw_audio_data.sample_rate() as u32,
-                            raw_audio_data.n_channels(),
-                        );
-                    }
-                    audio.samples = sample_data.to_vec();
-
-                    Ok::<_, eyre::Error>((audio, temp_path))
-                })
+                Ok::<_, eyre::Error>(original_audio_data)
+            })
                 .await
                 .context("Failed to join")??
-            }
-            TtsResult::Stream => unimplemented!("Streams are not yet supported"),
         };
 
         if let Some(rvc) = &post_processing.rvc {
@@ -289,7 +295,7 @@ impl GameQueueActor {
                     if should_normalise {
                         postprocessing::loudness_normalise(&mut data.samples, data.sample_rate, data.n_channels);
                     }
-                    data.write_to_wav_file(&destination_path)?;
+                    new_audio = data;
                 }
                 RvcResult::Stream => unimplemented!("Streams are not yet supported"),
             }
@@ -300,7 +306,7 @@ impl GameQueueActor {
 
         Ok(BackendTtsResponse {
             gen_time: response.gen_time + took,
-            result: TtsResult::File(destination_path),
+            result: TtsResult::Audio(new_audio),
         })
     }
 
@@ -315,7 +321,20 @@ impl GameQueueActor {
         let target_dir = self.data.line_cache.lines_voice_path(&voice);
         tokio::fs::create_dir_all(&target_dir).await?;
 
-        match response.result {
+        let (target_voice_file, file_name) = match response.result {
+            TtsResult::Audio(data) => {
+                let current_time = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
+                let file_name = {
+                    let mut new_name = std::ffi::OsString::from(current_time.to_string());
+                    new_name.push(".wav");
+                    new_name.to_string_lossy().into_owned()
+                };
+                let target_voice_file = target_dir.join(&*file_name);
+
+                data.write_to_wav_file(&target_voice_file)?;
+
+                (target_voice_file, file_name)
+            }
             TtsResult::File(temp_path) => {
                 // TODO: Perhaps think of a better method to naming the generated lines
                 let current_time = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis();
@@ -337,25 +356,27 @@ impl GameQueueActor {
                 // Move the file to its permanent spot, and add it to the tracking
                 tokio::fs::rename(&temp_path, &target_voice_file).await?;
 
-                let voice_line_db = db::voice_lines::ActiveModel {
-                    id: Default::default(),
-                    dialogue_text: text.clone().into_active_value(),
-                    voice_name: voice.name.clone().into_active_value(),
-                    voice_location: voice.location.clone().to_string_value().into_active_value(),
-                    file_name: file_name.into_active_value(),
-                };
-
-                // DB Constraint replaces line if it already exists TODO: Reap unreferenced voice files
-                voice_line_db.insert(tx).await?;
-
-                Ok(TtsResponse {
-                    file_path: target_voice_file,
-                    line: text,
-                    voice_used: voice,
-                })
+                (target_voice_file, file_name)
             }
             TtsResult::Stream => unimplemented!("Implement stream handling (still want to cache the output as well!)"),
-        }
+        };
+
+        let voice_line_db = db::voice_lines::ActiveModel {
+            id: Default::default(),
+            dialogue_text: text.clone().into_active_value(),
+            voice_name: voice.name.clone().into_active_value(),
+            voice_location: voice.location.clone().to_string_value().into_active_value(),
+            file_name: file_name.into_active_value(),
+        };
+
+        // DB Constraint replaces line if it already exists TODO: Reap unreferenced voice files
+        voice_line_db.insert(tx).await?;
+
+        Ok(TtsResponse {
+            file_path: target_voice_file,
+            line: text,
+            voice_used: voice,
+        })
     }
 
     async fn save_queue(&self) -> eyre::Result<()> {
