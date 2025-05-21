@@ -80,7 +80,7 @@ pub struct SubsystemConfig<T> {
 
 impl<T> SubsystemConfig<T> {
     /// Turn this config into an [Option]. `Some` if `enabled` is true, `None` otherwise.
-    pub fn as_opt(&self) -> Option<&T> {
+    pub fn if_enabled(&self) -> Option<&T> {
         if self.enabled {
             Some(&self.inner)
         } else {

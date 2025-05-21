@@ -88,6 +88,7 @@ impl LocalAllTalk {
                     match msg {
                         Some(msg) => self.handle_message(msg).await?,
                         None => {
+                            self.state.kill_state().await?;
                             tracing::trace!("Stopping LocalAllTalk actor as channel was closed");
                             break
                         },

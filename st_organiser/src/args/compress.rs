@@ -92,7 +92,7 @@ impl CompressCommand {
                     }
 
                     let mut wav_file = wavers::Wav::<f32>::from_path(&wav_path)?;
-                    let audio_data = st_system::audio::postprocessing::AudioData::new(&mut wav_file)?;
+                    let audio_data = st_system::audio::audio_data::AudioData::new(&mut wav_file)?;
 
                     audio_data.write_to_ogg_vorbis(&ogg_path, 0.6)?;
 

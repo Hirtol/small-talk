@@ -28,6 +28,9 @@ async fn main() -> eyre::Result<()> {
         SubCommands::Migrate(mig) => {
             mig.run(conf).await?;
         }
+        SubCommands::RegenerateLines(re) => {
+            re.run(conf).await?;
+        }
     }
 
     tracing::info!(

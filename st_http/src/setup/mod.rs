@@ -53,7 +53,7 @@ impl Application {
 
         let xtts = config
             .xtts
-            .as_opt()
+            .if_enabled()
             .map(|xtts| {
                 let all_talk_cfg = LocalAllTalkConfig {
                     instance_path: xtts.local_all_talk.clone(),
@@ -67,13 +67,13 @@ impl Application {
 
         let index = config
             .index_tts
-            .as_opt()
+            .if_enabled()
             .map(|cfg| LocalIndexHandle::new(cfg.clone()))
             .transpose()?;
 
         let tts_backend = TtsCoordinator::new(xtts, index, config.dirs.whisper_model.clone());
 
-        let mut seedvc_cfg = config.seed_vc.as_opt().map(|seed_vc| LocalSeedVcConfig {
+        let mut seedvc_cfg = config.seed_vc.if_enabled().map(|seed_vc| LocalSeedVcConfig {
             instance_path: seed_vc.local_path.clone(),
             timeout: seed_vc.timeout,
             api: seed_vc.config.clone(),

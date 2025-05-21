@@ -127,6 +127,7 @@ impl LocalIndexTts {
                         },
                         None => {
                             tracing::trace!("Stopping LocalIndexTts actor as channel was closed");
+                            self.state.kill_state().await?;
                             break
                         },
                     }
@@ -232,7 +233,7 @@ mod docker {
     use bollard::Docker;
     use bollard::image::CreateImageOptions;
     use bollard::models::{ContainerSummary, DeviceRequest, HostConfig};
-    use eyre::{Context, ContextCompat};
+    use eyre::{ContextCompat};
     use crate::tts_backends::indextts::local::INDEX_TTS_DEFAULT_PORT;
 
     const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";
@@ -321,7 +322,7 @@ mod tests {
     use std::time::Duration;
     use biquad::DirectForm2Transposed;
     use st_ml::emotion_classifier::BasicEmotion;
-    use crate::audio::postprocessing::AudioData;
+    use crate::audio::audio_data::AudioData;
     use crate::tts_backends::{BackendTtsRequest, TtsResult};
     use crate::tts_backends::indextts::api::{IndexTtsAPI, IndexTtsApiConfig, IndexTtsRequest};
     use crate::tts_backends::indextts::IndexTts;
@@ -334,9 +335,6 @@ mod tests {
         let thing = LocalIndexTtsConfig {
             image_name: "hirtol/index-tts-llvm:latest".to_string(),
             timeout: Duration::from_secs(60),
-            api: IndexTtsApiConfig {
-                address: "http://localhost:11996".try_into()?,
-            },
         };
         let api = LocalIndexHandle::new(thing)?;
 

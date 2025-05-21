@@ -40,7 +40,7 @@ use std::{
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
 use tracing::log;
 use crate::audio::playback::PlaybackEngineHandle;
-use crate::audio::postprocessing::AudioData;
+use crate::audio::audio_data::AudioData;
 
 const CONFIG_NAME: &str = "config.json";
 const DB_NAME: &str = "database.db";

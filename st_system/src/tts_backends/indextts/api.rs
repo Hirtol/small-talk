@@ -1,7 +1,7 @@
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::audio::postprocessing::AudioData;
+use crate::audio::audio_data::AudioData;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexTtsApiConfig {

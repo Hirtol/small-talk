@@ -20,7 +20,7 @@ use st_db::{DbId, WriteConnection, WriteTransaction};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
 use tracing::Instrument;
 use crate::audio::postprocessing;
-use crate::audio::postprocessing::AudioData;
+use crate::audio::audio_data::AudioData;
 
 pub type SingleRequest = (
     VoiceLineRequest,

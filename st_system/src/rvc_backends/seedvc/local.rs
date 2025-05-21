@@ -110,6 +110,7 @@ impl LocalSeedVc {
                             e => return e
                         },
                         None => {
+                            self.state.kill_state().await?;
                             tracing::trace!("Stopping LocalSeedVc actor as channel was closed");
                             break
                         },

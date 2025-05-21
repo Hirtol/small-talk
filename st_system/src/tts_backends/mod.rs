@@ -9,7 +9,7 @@ use crate::error::TtsError;
 use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
 use crate::timeout::DroppableState;
 use crate::data::TtsModel;
-use crate::audio::postprocessing::AudioData;
+use crate::audio::audio_data::AudioData;
 use crate::tts_backends::indextts::local::LocalIndexHandle;
 use crate::voice_manager::FsVoiceSample;
 
