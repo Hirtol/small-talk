@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::io::Write;
 use wavers::Wav;
 use std::path::Path;
 
@@ -27,6 +28,10 @@ impl AudioData {
         })
     }
 
+    /// Write the current [AudioData] to a WAV file at the given path.
+    ///
+    /// # Arguments
+    /// - `destination` - Path for the WAV file, should have a `.wav` extension.
     pub fn write_to_wav_file(&self, destination: &Path) -> eyre::Result<()> {
         Ok(wavers::write(destination, &self.samples, self.sample_rate as i32, self.n_channels)?)
     }
@@ -73,6 +78,39 @@ impl AudioData {
         encoder.finish()?;
 
         Ok(())
+    }
+
+    /// Transform the current audio data into a WAV file in-memory.
+    pub fn as_wav_bytes(&self) -> eyre::Result<Vec<u8>> {
+        // Mostly taken from the `wavers` crate because they enforce only file writes ._.
+        let new_header = wavers::WavHeader::new_header::<f32>(self.sample_rate as i32, self.n_channels, self.samples.len())?;
+        let mut buf_writer = Vec::with_capacity(self.samples.len());
+
+        match new_header.fmt_chunk.format {
+            wavers::FormatCode::WAV_FORMAT_PCM | wavers::FormatCode::WAV_FORMAT_IEEE_FLOAT => {
+                let header_bytes = new_header.as_base_bytes();
+                buf_writer.write_all(&header_bytes)?;
+            }
+            wavers::FormatCode::WAVE_FORMAT_EXTENSIBLE => {
+                let header_bytes = new_header.as_extended_bytes();
+                buf_writer.write_all(&header_bytes)?;
+            }
+            _ => {
+                return Err(wavers::error::FormatError::InvalidTypeId("Invalid type ID").into());
+            }
+        }
+
+        buf_writer.write_all(&wavers::DATA)?;
+        let data_size_bytes = self.samples.len() as u32; // write up to the data size
+        buf_writer.write_all(&data_size_bytes.to_le_bytes())?; // write the data size
+        // *Should* auto-vectorise, otherwise get bytemuck crate.
+        for &sample in &self.samples {
+            for sample_part in sample.to_le_bytes() {
+                buf_writer.push(sample_part)
+            }
+        }
+
+        Ok(buf_writer)
     }
 
     /// Applies a single-order lowpass filter

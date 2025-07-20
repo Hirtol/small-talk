@@ -1,4 +1,4 @@
-use eyre::ContextCompat;
+use eyre::{Context, ContextCompat};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
@@ -12,7 +12,7 @@ use tokio::{
     process::{Child, Command},
 };
 use tokio::time::error::Elapsed;
-use crate::error::RvcError;
+use crate::error::{RvcError, TtsError};
 use crate::timeout::{DroppableState, GcCell};
 use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
 use crate::tts_backends::indextts::api::{IndexTtsApiConfig, IndexTtsRequest};
@@ -109,7 +109,7 @@ impl LocalIndexTts {
     ///
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
     #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> Result<(), RvcError> {
+    pub async fn run(mut self) -> Result<(), TtsError> {
         loop {
             tokio::select! {
                 msg = self.recv.recv() => {
@@ -118,11 +118,6 @@ impl LocalIndexTts {
                     match msg {
                         Some(msg) => match self.handle_message(msg).await {
                             Ok(_) => {}
-                            Err(RvcError::Timeout) => {
-                                tracing::warn!("IndexTts timed out. Assuming failed state, restarting");
-                                // Something went wrong in our underlying state
-                                self.state.kill_state().await?;
-                            }
                             e => return e
                         },
                         None => {
@@ -146,7 +141,7 @@ impl LocalIndexTts {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_message(&mut self, message: IndexMessage) -> Result<(), RvcError> {
+    async fn handle_message(&mut self, message: IndexMessage) -> Result<(), TtsError> {
         match message {
             IndexMessage::StartInstance => {
                 self.state.get_state(&self.config).await?;
@@ -164,7 +159,7 @@ impl LocalIndexTts {
                 };
 
                 let now = std::time::Instant::now();
-                let mut tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts.api.tts(req)).await??;
+                let mut tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts.api.tts(req)).await.context("Timeout elapsed")??;
                 let took = now.elapsed();
 
                 // IndexTTS generates a high-pitch crackle at and above the ~11Khz range. We apply a 10500 Hz low-pass filter to remove this crackle.

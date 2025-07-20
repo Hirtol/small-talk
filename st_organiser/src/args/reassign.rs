@@ -64,7 +64,7 @@ impl ReassignCommand {
 
         tracing::info!(todo=lines_to_redo.len(), "Regenerating lines");
 
-        let voice_lines = lines_to_redo.into_iter().map(|line| {
+        let mut voice_lines = lines_to_redo.into_iter().map(|line| {
             VoiceLine {
                 line,
                 person: TtsVoice::ForceVoice(new_voice.clone()),
@@ -80,12 +80,16 @@ impl ReassignCommand {
                     }),
                 }),
             }
-        });
-        for line in voice_lines {
-            // Ignore errors
-            let _ = game_sess.request_tts(line).await;
+        }).collect_vec();
+
+        while let Some(line) = voice_lines.pop() {
+            if let Err(_) = game_sess.request_tts(line.clone()).await {
+                // Retry failed ones
+                tracing::debug!("Pushing {line:?} onto retry queue");
+                voice_lines.push(line)
+            }
         }
-        
+
         Ok(())
     }
 }
