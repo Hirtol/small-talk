@@ -53,10 +53,13 @@ pub enum IndexMessage {
 impl LocalIndexHandle {
     /// Create and start a new [LocalIndexTts] actor, returning the cloneable handle to the actor in the process.
     pub fn new(config: LocalIndexTtsConfig) -> eyre::Result<Self> {
-        let term = papaya::HashMap::from([("tiefling".to_string(), "teefling".to_string())]);
+        let term = papaya::HashMap::from([
+            ("tiefling".to_string(), "teefling".to_string()),
+            ("where's".into(), "where is".into()),
+            ("Where's".into(), "Where is".into()),
+            ("No.".into(), "No .".into()),
+        ]);
 
-
-        // Small amount before we exert back-pressure
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
         let actor = LocalIndexTts {
             text_processor: TextProcessor::new(term),

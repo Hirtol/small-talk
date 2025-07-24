@@ -68,7 +68,7 @@ impl<T: EntityTrait> EntityExt for T where <Self::PrimaryKey as PrimaryKeyTrait>
 // Needed to ensure we don't repeat ourselves everywhere...
 pub trait SelectExt<E: EntityTrait> {
     /// Return a single object, or error out with [DbErr::RecordNotFound] if no record exists.
-    fn one_or_err<'a, C>(self, db: &C) -> impl std::future::Future<Output = Result<E::Model, DbErr>> + Send
+    fn one_or_err<'a, C>(self, db: &C) -> impl Future<Output = Result<E::Model, DbErr>> + Send
     where
         C: ConnectionTrait;
 
@@ -78,8 +78,8 @@ pub trait SelectExt<E: EntityTrait> {
     ///
     /// # Arguments
     ///
-    /// * `limit` - The maximum amount of items returned in a query.
-    fn offset_paginate<C, I>(self, limit: I, db: &C) -> OffsetPaginator<C, E>
+    /// * `limit` - The maximum number of items returned in a query.
+    fn offset_paginate<C, I>(self, limit: I, db: &C) -> OffsetPaginator<'_, C, E>
     where
         C: ConnectionTrait,
         I: Into<Option<u64>>;
@@ -97,7 +97,7 @@ impl<E: EntityTrait> SelectExt<E> for Select<E> {
         }
     }
 
-    fn offset_paginate<C, I>(self, limit: I, db: &C) -> OffsetPaginator<C, E>
+    fn offset_paginate<C, I>(self, limit: I, db: &C) -> OffsetPaginator<'_, C, E>
     where
         C: ConnectionTrait,
         I: Into<Option<u64>>,
