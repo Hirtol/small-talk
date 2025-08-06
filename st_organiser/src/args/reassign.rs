@@ -94,7 +94,7 @@ impl ReassignCommand {
     }
 }
 
-fn create_tts_system(config: SharedConfig) -> eyre::Result<Arc<TtsSystem>> {
+pub(crate) fn create_tts_system(config: SharedConfig) -> eyre::Result<Arc<TtsSystem>> {
     let xtts = config
         .xtts
         .if_enabled()

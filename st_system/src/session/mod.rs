@@ -201,6 +201,42 @@ impl GameSessionHandle {
         Ok(voice_ref)
     }
 
+    /// Return all voice lines matching SQLite LIKE filters across all voices
+    pub async fn voice_lines_by_filters(
+        &self,
+        dialogue_pattern: Option<&str>,
+        file_pattern: Option<&str>
+    ) -> eyre::Result<Vec<(String, VoiceReference)>> {
+        let mut condition = sea_orm::Condition::all();
+        
+        if let Some(pattern) = dialogue_pattern {
+            condition = condition.add(db::voice_lines::Column::DialogueText.like(pattern));
+        }
+        
+        if let Some(pattern) = file_pattern {
+            condition = condition.add(db::voice_lines::Column::FileName.like(pattern));
+        }
+
+        let results: Vec<(String, String, String)> = db::voice_lines::Entity::find()
+            .select_only()
+            .columns([
+                db::voice_lines::Column::DialogueText,
+                db::voice_lines::Column::VoiceName,
+                db::voice_lines::Column::VoiceLocation
+            ])
+            .filter(condition)
+            .into_tuple()
+            .all(self.game_tts.data.game_db.reader())
+            .await?;
+
+        Ok(results.into_iter().map(|(text, name, location)| {
+            (text, VoiceReference {
+                name,
+                location: location.into()
+            })
+        }).collect())
+    }
+
     /// Will add the given items onto the queue for TTS generation.
     ///
     /// These items will be prioritised over previous queue items

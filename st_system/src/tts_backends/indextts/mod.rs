@@ -48,7 +48,7 @@ mod text_processing {
             Self {
                 replace_tokens: tokens,
                 dash_replace: regex::Regex::new(r"(\w+)-(\w+)").unwrap(),
-                apostrophe_replace: regex::Regex::new(r"(\w+)'s").unwrap(),
+                apostrophe_replace: regex::Regex::new(r"(?i)\b(there|where)'s\b").unwrap(),
             }
         }
 
