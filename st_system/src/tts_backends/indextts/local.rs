@@ -55,8 +55,6 @@ impl LocalIndexHandle {
     pub fn new(config: LocalIndexTtsConfig) -> eyre::Result<Self> {
         let term = papaya::HashMap::from([
             ("tiefling".to_string(), "teefling".to_string()),
-            ("where's".into(), "where is".into()),
-            ("Where's".into(), "Where is".into()),
             ("No.".into(), "No .".into()),
         ]);
 

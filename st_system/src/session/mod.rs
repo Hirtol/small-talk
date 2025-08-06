@@ -285,7 +285,7 @@ impl GameTts {
         send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>,
     ) -> eyre::Result<()> {
         let tx = self.data.game_db.writer().begin().await?;
-        self.data.try_add_new_dialogue(&tx, &[request.clone()]).await?;
+        self.data.try_add_new_dialogue(&tx, std::slice::from_ref(&request)).await?;
 
         let existing_line = if request.force_generate {
             let cache_entry = self.data.voice_line_to_cache(&tx, &request).await?;
@@ -301,7 +301,7 @@ impl GameTts {
         if let Some(tts_response) = existing_line {
             let _ = send.send(Arc::new(tts_response));
         } else {
-            // Otherwise send a priority request to our queue, clear any previous urgent requests and return them
+            // Otherwise, send a priority request to our queue, clear any previous urgent requests and return them
             // to the lower priority queue.
             let vl_request = VoiceLineRequest {
                 speaker: self.data.extract_voice_reference(self.data.game_db.writer(), &request).await?,

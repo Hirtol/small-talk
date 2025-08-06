@@ -40,6 +40,7 @@ mod text_processing {
     pub struct TextProcessor {
         replace_tokens: HashMap<String, String>,
         dash_replace: regex::Regex,
+        apostrophe_replace: regex::Regex,
     }
 
     impl TextProcessor {
@@ -47,13 +48,15 @@ mod text_processing {
             Self {
                 replace_tokens: tokens,
                 dash_replace: regex::Regex::new(r"(\w+)-(\w+)").unwrap(),
+                apostrophe_replace: regex::Regex::new(r"(\w+)'s").unwrap(),
             }
         }
 
         pub fn process(&self, text: impl AsRef<str>) -> String {
             let stack = text.as_ref();
 
-            let mut dash_replaced = self.dash_replace.replace_all(stack, "$1 $2").into_owned();
+            let dash_replaced = self.dash_replace.replace_all(stack, "$1 $2").into_owned();
+            let mut dash_replaced = self.apostrophe_replace.replace_all(&dash_replaced, "$1 is").into_owned();
 
             // TODO: For now a _very_ inefficient replacement, but later on use [AhoCorasick::replace_all]
             for (token, replacement) in self.replace_tokens.pin().iter() {
