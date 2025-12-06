@@ -34,6 +34,7 @@ use std::{
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, services::ServeFile, trace::TraceLayer};
+use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
 
 mod first_time;
 
@@ -71,7 +72,13 @@ impl Application {
             .map(|cfg| LocalIndexHandle::new(cfg.clone()))
             .transpose()?;
 
-        let tts_backend = TtsCoordinator::new(xtts, index, config.dirs.whisper_model.clone());
+        let echo = config
+            .echo_tts
+            .if_enabled()
+            .map(|cfg| LocalEchoHandle::new(cfg.clone()))
+            .transpose()?;
+
+        let tts_backend = TtsCoordinator::new(xtts, index, echo, config.dirs.whisper_model.clone());
 
         let mut seedvc_cfg = config.seed_vc.if_enabled().map(|seed_vc| LocalSeedVcConfig {
             instance_path: seed_vc.local_path.clone(),

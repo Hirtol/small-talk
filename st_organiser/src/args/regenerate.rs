@@ -1,7 +1,7 @@
 use crate::args::ClapTtsModel;
-use st_http::config::SharedConfig;
-use st_system::{VoiceLine, TtsVoice, PostProcessing, RvcOptions, RvcModel, TtsSystem};
 use itertools::Itertools;
+use st_http::config::SharedConfig;
+use st_system::{PostProcessing, RvcModel, RvcOptions, TtsSystem, TtsVoice, VoiceLine};
 
 #[derive(clap::Args, Debug)]
 pub struct RegenerateCommand {
@@ -21,6 +21,9 @@ pub struct RegenerateCommand {
     /// SQLite LIKE pattern for file name (e.g. "%.wav")
     #[clap(long)]
     file_pattern: Option<String>,
+    /// Whether to use RVC for the post-generation step.
+    #[clap(long)]
+    rvc: bool,
 }
 
 impl RegenerateCommand {
@@ -41,17 +44,17 @@ impl RegenerateCommand {
             // Handle pattern-based regeneration across all voices
             let tts_sys = super::reassign::create_tts_system(config)?;
             let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
-            
+
             // Get all voice lines matching patterns
-            let lines = game_sess.voice_lines_by_filters(
-                self.dialogue_pattern.as_deref(),
-                self.file_pattern.as_deref()
-            ).await?;
+            let lines = game_sess
+                .voice_lines_by_filters(self.dialogue_pattern.as_deref(), self.file_pattern.as_deref())
+                .await?;
 
-            tracing::info!(todo=lines.len(), "Regenerating lines across all matching voices");
+            tracing::info!(todo = lines.len(), "Regenerating lines across all matching voices");
 
-            let mut voice_lines = lines.into_iter().map(|(text, voice_ref)| {
-                VoiceLine {
+            let mut voice_lines = lines
+                .into_iter()
+                .map(|(text, voice_ref)| VoiceLine {
                     line: text,
                     person: TtsVoice::ForceVoice(voice_ref),
                     model: self.model.into(),
@@ -60,13 +63,13 @@ impl RegenerateCommand {
                         verify_percentage: None,
                         trim_silence: true,
                         normalise: true,
-                        rvc: Some(RvcOptions {
+                        rvc: self.rvc.then_some(RvcOptions {
                             model: RvcModel::SeedVc,
                             high_quality: true,
                         }),
                     }),
-                }
-            }).collect_vec();
+                })
+                .collect_vec();
 
             while let Some(line) = voice_lines.pop() {
                 if let Err(_) = game_sess.request_tts(line.clone()).await {

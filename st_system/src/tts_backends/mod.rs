@@ -1,19 +1,20 @@
-use std::ops::DerefMut;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, OnceLock};
-use std::time::Duration;
+use crate::{
+    audio::audio_data::AudioData,
+    data::TtsModel,
+    error::TtsError,
+    timeout::DroppableState,
+    tts_backends::{
+        alltalk::local::LocalAllTalkHandle, echo_tts::local::LocalEchoHandle, indextts::local::LocalIndexHandle,
+    },
+    voice_manager::FsVoiceSample,
+};
 use eyre::Context;
-use tokio::sync::Mutex;
 use st_ml::stt::WhisperTranscribe;
-use crate::error::TtsError;
-use crate::tts_backends::alltalk::local::LocalAllTalkHandle;
-use crate::timeout::DroppableState;
-use crate::data::TtsModel;
-use crate::audio::audio_data::AudioData;
-use crate::tts_backends::indextts::local::LocalIndexHandle;
-use crate::voice_manager::FsVoiceSample;
+use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 
 pub mod alltalk;
+pub mod echo_tts;
 pub mod indextts;
 
 pub type Result<T> = std::result::Result<T, TtsError>;
@@ -23,6 +24,7 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 pub struct TtsCoordinator {
     pub xtts: Option<LocalAllTalkHandle>,
     pub index_tts: Option<LocalIndexHandle>,
+    pub echo_tts: Option<LocalEchoHandle>,
     whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
     whisper_path: PathBuf,
 }
@@ -31,10 +33,16 @@ impl TtsCoordinator {
     /// Create a new [TtsCoordinator]
     ///
     /// If no TtsBackend model is provided all requests will return with [TtsError::ModelNotInitialised].
-    pub fn new(xtts_all_talk: Option<LocalAllTalkHandle>, index_tts: Option<LocalIndexHandle>, whisper_path: PathBuf) -> Self {
+    pub fn new(
+        xtts_all_talk: Option<LocalAllTalkHandle>,
+        index_tts: Option<LocalIndexHandle>,
+        echo_tts: Option<LocalEchoHandle>,
+        whisper_path: PathBuf,
+    ) -> Self {
         Self {
             xtts: xtts_all_talk,
             index_tts,
+            echo_tts,
             whisper: Arc::new(Mutex::new(None)),
             whisper_path,
         }
@@ -46,19 +54,24 @@ impl TtsCoordinator {
         match model {
             TtsModel::Xtts => {
                 let Some(xtts) = &self.xtts else {
-                    return Err(TtsError::ModelNotInitialised {
-                        model
-                    })
+                    return Err(TtsError::ModelNotInitialised { model });
                 };
                 Ok(xtts.submit_tts_request(req).await?)
             }
             TtsModel::IndexTts => {
                 let Some(index) = &self.index_tts else {
-                    return Err(TtsError::ModelNotInitialised {
-                        model
-                    })
+                    return Err(TtsError::ModelNotInitialised { model });
                 };
+
                 Ok(index.submit_tts_request(req).await?)
+            }
+
+            TtsModel::EchoTts => {
+                let Some(echo) = &self.echo_tts else {
+                    return Err(TtsError::ModelNotInitialised { model });
+                };
+
+                Ok(echo.submit_tts_request(req).await?)
             }
         }
     }
@@ -93,13 +106,15 @@ impl TtsCoordinator {
                 None => {
                     let cpu_threads = std::thread::available_parallelism()?.get() / 2;
                     let mut model = WhisperTranscribe::new(whisp_path, cpu_threads as u16)?;
-                    let output = model.infer(&audio_data.samples, audio_data.n_channels , audio_data.sample_rate);
+                    let output = model.infer(&audio_data.samples, audio_data.n_channels, audio_data.sample_rate);
                     *whisp = Some(model);
                     output
                 }
-                Some(model) => model.infer(&audio_data.samples, audio_data.n_channels , audio_data.sample_rate)
+                Some(model) => model.infer(&audio_data.samples, audio_data.n_channels, audio_data.sample_rate),
             }
-        }).await.map_err(|e| eyre::eyre!(e))??;
+        })
+        .await
+        .map_err(|e| eyre::eyre!(e))??;
         // Can cause problems if we don't remove these for short quotes.
         let original_without_quotes = original_prompt.trim_start_matches('"').trim_end_matches('"');
         let leven = strsim::levenshtein(&output, original_without_quotes);
@@ -117,7 +132,7 @@ pub struct BackendTtsRequest {
     /// Path reference(s) to the voice samples to use for generating.
     /// If only one sample is needed simply pick the first
     ///
-    /// These should not be moved/deleted, if needed simply hardlink these to a new location 
+    /// These should not be moved/deleted, if needed simply hardlink these to a new location
     pub voice_reference: Vec<FsVoiceSample>,
     /// The playback speed of the voice
     pub speed: Option<f32>,
@@ -127,7 +142,7 @@ pub struct BackendTtsRequest {
 pub struct BackendTtsResponse {
     /// How long it took to generate the response
     pub gen_time: Duration,
-    pub result: TtsResult
+    pub result: TtsResult,
 }
 
 #[derive(Debug, Clone)]
@@ -136,5 +151,5 @@ pub enum TtsResult {
     File(PathBuf),
     Audio(AudioData),
     /// TODO, maybe
-    Stream
+    Stream,
 }

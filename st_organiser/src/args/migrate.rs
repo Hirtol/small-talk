@@ -7,8 +7,8 @@ use st_system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig}
 use st_system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
 use st_system::tts_backends::TtsCoordinator;
 use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsSystem, TtsVoice, VoiceLine};
+use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
 use st_system::tts_backends::indextts::local::LocalIndexHandle;
-use st_system::voice_manager::{VoiceDestination, VoiceManager, VoiceReference};
 
 #[derive(clap::Args, Debug)]
 pub struct MigrateCommand {
@@ -108,8 +108,13 @@ fn create_tts_system(config: SharedConfig) -> eyre::Result<Arc<TtsSystem>> {
         .if_enabled()
         .map(|cfg| LocalIndexHandle::new(cfg.clone()))
         .transpose()?;
+    let echo = config
+        .echo_tts
+        .if_enabled()
+        .map(|cfg| LocalEchoHandle::new(cfg.clone()))
+        .transpose()?;
 
-    let tts_backend = TtsCoordinator::new(xtts, index, config.dirs.whisper_model.clone());
+    let tts_backend = TtsCoordinator::new(xtts, index, echo, config.dirs.whisper_model.clone());
 
     let mut seedvc_cfg = config.seed_vc.if_enabled().map(|seed_vc| LocalSeedVcConfig {
         instance_path: seed_vc.local_path.clone(),

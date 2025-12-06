@@ -43,14 +43,16 @@ pub enum SubCommands {
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 pub enum ClapTtsModel {
     Xtts,
-    IndexTts
+    IndexTts,
+    EchoTts
 }
 
 impl From<ClapTtsModel> for st_system::TtsModel {
     fn from(value: ClapTtsModel) -> Self {
         match value {
             ClapTtsModel::Xtts => st_system::TtsModel::Xtts,
-            ClapTtsModel::IndexTts => st_system::TtsModel::IndexTts
+            ClapTtsModel::IndexTts => st_system::TtsModel::IndexTts,
+            ClapTtsModel::EchoTts => st_system::TtsModel::EchoTts
         }
     }
 }
