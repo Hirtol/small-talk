@@ -58,6 +58,8 @@ impl LocalEchoHandle {
     pub fn new(config: LocalEchoTtsConfig) -> eyre::Result<Self> {
         let term = papaya::HashMap::from([
             ("Kenabres".to_string(), "Kenaabres".to_string()),
+            ("worldwound".to_string(), "world wound".to_string()),
+            ("Worldwound".to_string(), "World wound".to_string()),
         ]);
 
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
@@ -70,7 +72,7 @@ impl LocalEchoHandle {
 
         tokio::task::spawn(async move {
             if let Err(e) = actor.run().await {
-                tracing::error!("LocalIndexTts stopped with error: {e}");
+                tracing::error!("LocalEchoTts stopped with error: {e}");
             }
         });
 
@@ -124,7 +126,7 @@ impl LocalEchoTts {
                             e => return e
                         },
                         None => {
-                            tracing::trace!("Stopping LocalIndexTts actor as channel was closed");
+                            tracing::trace!("Stopping LocalEchoTts actor as channel was closed");
                             self.state.kill_state().await?;
                             break
                         },

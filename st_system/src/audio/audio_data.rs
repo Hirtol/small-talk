@@ -28,6 +28,10 @@ impl AudioData {
         })
     }
 
+    pub fn frames_len(&self) -> usize {
+        if self.n_channels == 0 { 0 } else { self.samples.len() / self.n_channels as usize }
+    }
+
     /// Write the current [AudioData] to a WAV file at the given path.
     ///
     /// # Arguments

@@ -159,10 +159,9 @@ impl GameQueueActor {
     #[tracing::instrument(skip(self))]
     async fn execute_request(&mut self, voice_line: VoiceLineRequest) -> GameResult<TtsResponse> {
         // If we want to use RVC we'll try and warm it up before the TTS request to save time
-        if let Some(post) = &voice_line.post {
-            if let Some(rvc) = &post.rvc {
+        if let Some(post) = &voice_line.post &&
+            let Some(rvc) = &post.rvc {
                 self.rvc.prepare_instance(rvc.high_quality).await?;
-            }
         }
 
         let voice = self.data.voice_manager.get_voice(voice_line.speaker.clone())?;

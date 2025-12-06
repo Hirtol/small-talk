@@ -38,6 +38,7 @@ impl RegenerateCommand {
                 target_voice: voice,
                 target_location: voice_location,
                 model: self.model,
+                rvc: self.rvc
             };
             command.run(config).await
         } else {

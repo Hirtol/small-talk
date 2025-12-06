@@ -1,6 +1,7 @@
 use tracing::Subscriber;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
+use tracing_subscriber::field::MakeExt;
 
 /// Create the initial subscriber, alongside the custom formatting for standard i/o.
 pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + Sync {
@@ -21,7 +22,7 @@ pub fn create_subscriber(default_directives: &str) -> impl Subscriber + Send + S
     //     .with_filter(our_filter)
     //     .with_filter(env_filter());
     let our_logger = tracing_subscriber::fmt::layer()
-        .event_format(our_format)
+        .event_format(our_format).map_fmt_fields(|f| f.debug_alt())
         .with_filter(our_filter);
     let normal_logger = tracing_subscriber::fmt::layer()
         .event_format(normal_format)

@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 pub mod alltalk;
 pub mod echo_tts;
 pub mod indextts;
+pub mod chunking;
 
 pub type Result<T> = std::result::Result<T, TtsError>;
 

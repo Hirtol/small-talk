@@ -3,5 +3,6 @@ pub mod postprocessing;
 pub mod audio_data;
 
 pub mod scale_tempo;
+pub mod stitching;
 
 pub use audio_data::*;

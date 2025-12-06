@@ -34,6 +34,9 @@ pub struct ReassignCommand {
     /// The TTS Model to use for the re-generation
     #[clap(long)]
     pub model: ClapTtsModel,
+    /// Whether to use RVC
+    #[clap(long)]
+    pub rvc: bool,
 }
 
 impl ReassignCommand {
@@ -75,7 +78,7 @@ impl ReassignCommand {
                     verify_percentage: None,
                     trim_silence: true,
                     normalise: true,
-                    rvc: Some(RvcOptions {
+                    rvc: self.rvc.then_some(RvcOptions {
                         model: RvcModel::SeedVc,
                         high_quality: true,
                     }),
