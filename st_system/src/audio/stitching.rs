@@ -5,12 +5,12 @@ use std::time::Duration;
 pub fn stitch_with_gaps(
     chunks: impl ExactSizeIterator<Item = AudioData>,
     gap: Duration,
-) -> crate::error::Result<AudioData> {
+) -> eyre::Result<AudioData> {
     if chunks.len() <= 1 {
-        return Ok(chunks
+        return chunks
             .into_iter()
             .next()
-            .ok_or_else(|| eyre::eyre!("Can't stitch 0 samples"))?);
+            .ok_or_else(|| eyre::eyre!("Can't stitch 0 samples"));
     }
 
     let mut silence = Vec::new();

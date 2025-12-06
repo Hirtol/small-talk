@@ -216,13 +216,8 @@ mod tests {
 
     #[test]
     fn test_chunk_calculate() {
-        let test_sentence = r#"
-        "On another day, I would argue with you, priest.
-            I would say a hunch is a poor substitute for a plan, that intuition won't feed you when the coffers are empty,
-            and that spontaneity won't warm you if you've not chopped firewood in advance.
-            But now... These city folk had planned for every possibility, they thought they were ready for everything,
-            and yet all it took was the snap of a finger for their world to come tumblin' down."
-            "#;
+        let test_sentence = r#"A carpet of fragrant grasses spreads out at the trees' roots, with islands of phosphorescent moss and lichen dotted here and there. Small, smooth stones with a strange, mirrored surface are scattered across the stream bed in which Hirtol is standing.
+           "#;
 
         // let out = SENTENCE_SPLIT_REGEX.split(test_sentence).collect::<Vec<&str>>();
         let re = &*SENTENCE_SPLIT_REGEX;

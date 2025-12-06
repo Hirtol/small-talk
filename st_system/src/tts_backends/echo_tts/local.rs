@@ -15,6 +15,7 @@ use tokio::time::error::Elapsed;
 use crate::error::{RvcError, TtsError};
 use crate::timeout::{DroppableState, GcCell};
 use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
+use crate::tts_backends::chunking::Chunk;
 use crate::tts_backends::echo_tts::api::{EchoTtsApiConfig, EchoTtsRequest};
 use crate::tts_backends::echo_tts::EchoTts;
 use crate::tts_backends::echo_tts::text_processing::TextProcessor;
@@ -157,31 +158,51 @@ impl LocalEchoTts {
             EchoMessage::TtsRequest(mut request, response) => {
                 let state = self.state.get_state(&self.config).await?;
                 let voice_sample = request.voice_reference.pop().context("No voice sample")?;
+                let voice_data = voice_sample.data().await?;
+                let preprocessed_text = self.text_processor.process(request.gen_text);
+                let chunked = crate::tts_backends::chunking::chunk_text(&preprocessed_text, 70, 500);
 
-                let req = EchoTtsRequest {
-                    text: self.text_processor.process(request.gen_text),
-                    num_steps: Some(20),
-                    sequence_length: Some(640),
-                    wav_file_bytes: voice_sample.data().await?,
-                };
-
+                let mut all_chunks = Vec::new();
                 let now = std::time::Instant::now();
-                let mut tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts.api.tts(req)).await.context("Timeout elapsed")??;
-                let took = now.elapsed();
 
-                // IndexTTS generates a high-pitch crackle at and above the ~11Khz range. We apply a 10500 Hz low-pass filter to remove this crackle.
-                // (10500 instead of 11000 as our filtering crate isn't great)
-                tts_response.lowpass_filter(10500.);
+                for chunk in chunked {
+                    let req = EchoTtsRequest {
+                        sequence_length: Some(Self::get_expected_sequence_length(&chunk)),
+                        num_steps: Some(30),
+                        text: chunk.text,
+                        wav_file_bytes: voice_data.clone(),
+                    };
+                    tracing::trace!(?req, "Sending the following request to echo");
+                    let tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts.api.tts(req)).await.context("Timeout elapsed")??;
+                    all_chunks.push(tts_response);
+                }
+
+                let took = now.elapsed();
+                let mut stitched = crate::audio::stitching::stitch_with_gaps(all_chunks.into_iter(), Duration::from_millis(100))?;
+                stitched.lowpass_filter(10500.);
 
                 let _ = response.send(BackendTtsResponse {
                     gen_time: took,
-                    result: TtsResult::Audio(tts_response),
+                    result: TtsResult::Audio(stitched),
                 });
 
                 tracing::trace!(?took, "Finished handling of TTS request");
             }
         }
         Ok(())
+    }
+
+    /// For really low-cost chunks we can optimise inference substantially by shortening the length of the inferred audio.
+    /// The max of `640` is equivalent to ~30 seconds of audio, and decreases proportionally.
+    ///
+    /// This is rather pessimistic, lower values are possible, but then you run the risk of cut-off audio
+    fn get_expected_sequence_length(chunk: &Chunk) -> usize {
+        match chunk.cost {
+            0..50 => 130,
+            50..100 => 213,
+            100..250 => 416,
+            250.. => 640
+        }
     }
 }
 

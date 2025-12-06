@@ -1,6 +1,7 @@
 use crate::audio::audio_data::AudioData;
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Formatter};
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,12 +67,21 @@ impl EchoTtsAPI {
     }
 }
 
-#[derive(Debug)]
 pub struct EchoTtsRequest {
     pub text: String,
     pub num_steps: Option<usize>,
     pub sequence_length: Option<usize>,
     pub wav_file_bytes: Vec<u8>,
+}
+
+impl Debug for EchoTtsRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EchoTtsRequest")
+            .field("text", &self.text)
+            .field("num_steps", &self.num_steps)
+            .field("sequence_length", &self.sequence_length)
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -86,7 +96,7 @@ mod tests {
         let api = EchoTts::new(EchoTtsApiConfig {
             address: "http://localhost:11997".try_into()?,
         })
-            .await?;
+        .await?;
 
         let wav = std::fs::read(r"G:\TTS\small-talk-data\game_data\Pathfinder-WOTR\voices\Regill\Neutral_13.wav")?;
         let out = api.api.tts(EchoTtsRequest {
