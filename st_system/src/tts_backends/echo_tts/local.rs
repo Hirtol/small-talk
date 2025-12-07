@@ -134,7 +134,7 @@ impl LocalEchoTts {
                     }
                 },
                 _ = self.state.timeout_future() => {
-                    tracing::debug!("Timeout expired, dropping local IndexTts state");
+                    tracing::debug!("Timeout expired, dropping local EchoTts state");
                     // Drop the state, killing the sub-process
                     // Safe to do as we know that it won't be generating for us since we have exclusive access.
                     self.state.kill_state().await?
@@ -168,7 +168,7 @@ impl LocalEchoTts {
                 for chunk in chunked {
                     let req = EchoTtsRequest {
                         sequence_length: Some(Self::get_expected_sequence_length(&chunk)),
-                        num_steps: Some(30),
+                        num_steps: Some(40),
                         text: chunk.text,
                         wav_file_bytes: voice_data.clone(),
                     };
@@ -211,7 +211,7 @@ impl DroppableState for TemporaryState {
 
     async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
         #[tracing::instrument]
-        async fn start_indextts(daemon: &Docker) -> eyre::Result<ContainerSummary> {
+        async fn start_echo_tts(daemon: &Docker) -> eyre::Result<ContainerSummary> {
             tracing::debug!("Attempting to start EchoTts process");
             let container = docker::find_or_create_container(daemon, "small-talk-echo-tts").await?;
 
@@ -223,7 +223,7 @@ impl DroppableState for TemporaryState {
         }
 
         let daemon = bollard::Docker::connect_with_local_defaults()?;
-        let container = start_indextts(&daemon).await?;
+        let container = start_echo_tts(&daemon).await?;
 
         let container_port = if let Some(ports) = &container.ports {
             ports.first().and_then(|p| p.public_port).unwrap_or(ECHO_TTS_DOCKER_PORT)
@@ -231,7 +231,7 @@ impl DroppableState for TemporaryState {
             ECHO_TTS_DOCKER_PORT
         };
         let api_address = format!("http://localhost:{container_port}");
-        tracing::debug!(?api_address, "Started IndexTts container");
+        tracing::debug!(?api_address, "Started EchoTts container");
 
         let api = EchoTts::new(EchoTtsApiConfig {
             address: url::Url::parse(&api_address)?,

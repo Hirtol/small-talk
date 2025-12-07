@@ -2,6 +2,7 @@ use crate::audio::audio_data::AudioData;
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
+use rand::Rng;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +46,8 @@ impl EchoTtsAPI {
             )
             .text("text", request.text)
             .text("num_steps", request.num_steps.unwrap_or(40).to_string())
-            .text("sequence_length", request.sequence_length.unwrap_or(640).to_string());
+            .text("sequence_length", request.sequence_length.unwrap_or(640).to_string())
+            .text("rng_seed", rand::rng().random::<u32>().to_string());
 
         let response = self
             .client

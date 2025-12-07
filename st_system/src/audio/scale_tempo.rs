@@ -1,9 +1,11 @@
 //! Converted from VLC's `scaletempo.c`
 //! https://code.videolan.org/vikram-kangotra/vlc/-/blob/rust-for-vlc/modules/audio_filter/scaletempo.c
 
-pub struct Scaletempo {
+use kira::Frame;
+
+pub struct ScaleTempo {
+    pub sample_rate: u32,
     scale: f64,
-    sample_rate: u32,
     channels: usize,
     ms_stride: u32,
     percent_overlap: f64,
@@ -21,7 +23,7 @@ pub struct Scaletempo {
     stride_error: f64,
 }
 
-impl Scaletempo {
+impl ScaleTempo {
     pub fn new(sample_rate: u32, channels: usize, ms_stride: u32, percent_overlap: f64, ms_search: u32) -> Self {
         let stride_frames = (ms_stride as f64 * sample_rate as f64 / 1000.0).round() as usize;
         let overlap_frames = (stride_frames as f64 * percent_overlap).round() as usize;
@@ -56,7 +58,7 @@ impl Scaletempo {
         let buf_pre_corr = vec![0.0; window_table.len()];
         let overlap = vec![0.0; overlap_frames * channels];
 
-        Scaletempo {
+        ScaleTempo {
             scale: 1.0,
             sample_rate,
             channels,
@@ -220,5 +222,24 @@ impl Scaletempo {
         offset += consumed;
 
         output
+    }
+}
+
+pub fn to_kira_frames(samples: Vec<f32>) -> std::sync::Arc<[Frame]> {
+    let new_samples: Vec<_> = samples
+        .chunks_exact(2)
+        .into_iter()
+        .map(|chunk| Frame {
+            left: chunk[0],
+            right: chunk[1],
+        })
+        .collect();
+    unsafe { new_samples.into() }
+}
+
+pub struct RefInterlacedSamples<'a>(pub &'a [Frame]);
+impl AsRef<[f32]> for RefInterlacedSamples<'_> {
+    fn as_ref(&self) -> &[f32] {
+        unsafe { std::slice::from_raw_parts(self.0.as_ptr() as *const f32, self.0.len() * 2) }
     }
 }

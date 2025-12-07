@@ -1,8 +1,27 @@
 use crate::{
-    TtsResponse, VoiceLine,
+    audio::{
+        scale_tempo::{RefInterlacedSamples, ScaleTempo},
+        AudioData,
+    }, data::TtsModel,
+    session::{GameSessionHandle, GameTts},
+    voice_manager::VoiceManager,
+    TtsResponse,
+    VoiceLine,
 };
 use eyre::ContextCompat;
 use futures::{future::BoxFuture, FutureExt};
+use kira::{
+    effect::{
+        filter::{FilterBuilder, FilterMode},
+        reverb::ReverbBuilder,
+    }, sound::{
+        static_sound::{StaticSoundData, StaticSoundHandle},
+        PlaybackState,
+    }, track::{TrackBuilder, TrackHandle}, AudioManager, AudioManagerSettings,
+    Decibels,
+    DefaultBackend,
+    Tween,
+};
 use std::{
     collections::VecDeque,
     fs::File,
@@ -10,16 +29,7 @@ use std::{
     sync::{Arc, Weak},
     time::Duration,
 };
-use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
-use kira::effect::filter::{FilterBuilder, FilterMode};
-use kira::effect::reverb::ReverbBuilder;
-use kira::sound::PlaybackState;
-use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
-use kira::track::{TrackBuilder, TrackHandle};
-use crate::session::{GameSessionHandle, GameTts};
-use crate::voice_manager::VoiceManager;
 use tokio::sync::broadcast;
-use crate::data::TtsModel;
 
 #[derive(Clone)]
 pub struct PlaybackEngineHandle {
@@ -41,6 +51,7 @@ impl PlaybackEngineHandle {
             current_settings: None,
             current_queue: Default::default(),
             current_sound: None,
+            scale_tempo: create_scale_tempo(44_100),
         };
         let rt = tokio::runtime::Handle::current();
         // We do blocking IO in the actor, so spawn it on the thread pool.
@@ -95,6 +106,7 @@ pub struct PlaybackEngine {
 
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
 
+    scale_tempo: ScaleTempo,
     audio_manager: AudioManager<DefaultBackend>,
     current_track: Option<TrackHandle>,
     current_sound: Option<StaticSoundHandle>,
@@ -159,7 +171,9 @@ impl PlaybackEngine {
                 }
                 // Add the items to a generation queue so that playbacks after the current one are quick
                 if !self.current_queue.is_empty() {
-                    session.add_all_to_queue(self.current_queue.iter().map(|l| l.line.clone()).collect()).await?;
+                    session
+                        .add_all_to_queue(self.current_queue.iter().map(|l| l.line.clone()).collect())
+                        .await?;
                     // As we're preemptively sending these off we should ensure we don't request _another_ regeneration when actually playing this line.
                     self.current_queue
                         .iter_mut()
@@ -172,13 +186,28 @@ impl PlaybackEngine {
 
     #[tracing::instrument(skip(self))]
     async fn handle_tts_sample(&mut self, tts: Arc<TtsResponse>) -> eyre::Result<()> {
-        let Ok(file) = StaticSoundData::from_file(&tts.file_path) else {
+        let Ok(mut file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
             self.current_request = None;
             self.current_sound = None;
             return Ok(());
         };
+
+        // Handle speed changes. Can't set it as an effect
+        if let Some(speed) = self.current_settings.as_ref().and_then(|s| s.speed)
+            && speed != 1.0
+        {
+            if self.scale_tempo.sample_rate != file.sample_rate {
+                self.scale_tempo = create_scale_tempo(file.sample_rate);
+            }
+
+            let new_samples = self
+                .scale_tempo
+                .process(RefInterlacedSamples(&file.frames).as_ref(), speed);
+            file.frames = super::scale_tempo::to_kira_frames(new_samples);
+            file.slice = None;
+        }
 
         self.current_request = None;
         let mut track = self.current_track.as_mut().expect("Invariant violation");
@@ -187,7 +216,11 @@ impl PlaybackEngine {
     }
 
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
-        let has_stopped = self.current_sound.as_ref().map(|s| s.state() == PlaybackState::Stopped).unwrap_or_default();
+        let has_stopped = self
+            .current_sound
+            .as_ref()
+            .map(|s| s.state() == PlaybackState::Stopped)
+            .unwrap_or_default();
         if has_stopped && self.current_request.is_none() {
             if let Some(request) = self.current_queue.pop_front() {
                 self.start_playback_request(request, self.session()?).await?;
@@ -234,11 +267,13 @@ impl PlaybackEngine {
 /// * `Outdoors` - No applied reverb
 /// * `Indoors` - Modicum of reverb
 /// * `Cave` - Large amount of reverb
-#[derive(serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(
+    serde::Deserialize, serde::Serialize, Debug, schemars::JsonSchema, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash,
+)]
 pub enum PlaybackEnvironment {
     Outdoors,
     Indoors,
-    Cave
+    Cave,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -248,7 +283,9 @@ pub struct PlaybackSettings {
     /// Affects the amount of reverb applied
     pub environment: Option<PlaybackEnvironment>,
     /// Playback volume, should be in the interval `[0.0, 1.0]`
-    pub volume: Option<f32>
+    pub volume: Option<f32>,
+    /// Playback speed, should be strictly positive
+    pub speed: Option<f64>,
 }
 
 impl PlaybackSettings {
@@ -278,4 +315,8 @@ impl PlaybackSettings {
 
         builder
     }
+}
+
+fn create_scale_tempo(sample_rate: u32) -> ScaleTempo {
+    ScaleTempo::new(sample_rate, 2, 30, 0.2, 14)
 }
