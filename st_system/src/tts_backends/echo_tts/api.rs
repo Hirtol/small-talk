@@ -45,7 +45,7 @@ impl EchoTtsAPI {
                     .mime_str("application/octet-stream")?,
             )
             .text("text", request.text)
-            .text("num_steps", request.num_steps.unwrap_or(40).to_string())
+            .text("num_steps", request.num_steps.unwrap_or(30).to_string())
             .text("sequence_length", request.sequence_length.unwrap_or(640).to_string())
             .text("rng_seed", rand::rng().random::<u32>().to_string());
 

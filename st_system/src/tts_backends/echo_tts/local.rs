@@ -168,7 +168,7 @@ impl LocalEchoTts {
                 for chunk in chunked {
                     let req = EchoTtsRequest {
                         sequence_length: Some(Self::get_expected_sequence_length(&chunk)),
-                        num_steps: Some(40),
+                        num_steps: Some(30),
                         text: chunk.text,
                         wav_file_bytes: voice_data.clone(),
                     };
