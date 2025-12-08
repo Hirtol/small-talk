@@ -1,86 +1,213 @@
 use crate::args::ClapTtsModel;
 use itertools::Itertools;
+use sea_orm::{
+    prelude::Expr, sea_query::{Alias, ExprTrait, Query}, ColumnTrait, DbBackend, EntityTrait, JoinType, QueryFilter, QuerySelect,
+    SelectColumns,
+    Statement,
+};
 use st_http::config::SharedConfig;
-use st_system::{PostProcessing, RvcModel, RvcOptions, TtsSystem, TtsVoice, VoiceLine};
+use st_system::{
+    session::{db, db::SessionDb, GameSessionHandle}, voice_manager::VoiceReference, PostProcessing, RvcModel, RvcOptions, TtsSystem,
+    TtsVoice,
+    VoiceLine,
+};
 
 #[derive(clap::Args, Debug)]
 pub struct RegenerateCommand {
     /// The name of the game-session which contains the voice lines
     game_name: String,
+    #[clap(long)]
+    model: ClapTtsModel,
+    /// Whether to use RVC for the post-generation step.
+    #[clap(long)]
+    rvc: bool,
+    #[clap(subcommand)]
+    sub_command: RegenerateSubCommand,
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum RegenerateSubCommand {
+    /// Regenerate lines for a specific voice
+    Voice(RegenerateVoice),
+    /// Find all missing lines (dialogue present in the dialogue table, but without associated voice_lines)
+    MissingLines,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct RegenerateVoice {
     /// The voice to change (optional: if not provided, all matching voices will be regenerated)
     #[clap(long, short)]
     voice: Option<String>,
     /// The location, either 'global' or '{GAME_NAME}' (optional)
     #[clap(long, short)]
     voice_location: Option<String>,
-    #[clap(long)]
-    model: ClapTtsModel,
+    /// Various filters for the lines to regenerate
+    #[command(flatten)]
+    patterns: RegenerateFilters,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct RegenerateFilters {
     /// SQLite LIKE pattern for dialogue text (e.g. "%there's%")
     #[clap(long)]
     dialogue_pattern: Option<String>,
+    /// SQLite ID voice_line id which marks the end of eligible regenerations.
+    #[clap(long)]
+    id_cutoff: Option<usize>,
     /// SQLite LIKE pattern for file name (e.g. "%.wav")
     #[clap(long)]
     file_pattern: Option<String>,
-    /// Whether to use RVC for the post-generation step.
-    #[clap(long)]
-    rvc: bool,
 }
 
 impl RegenerateCommand {
     #[tracing::instrument(skip_all, fields(self.sample_path))]
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
-        if let (Some(voice), Some(voice_location)) = (self.voice, self.voice_location) {
-            // Use ReassignCommand for voice-specific regeneration
-            let command = super::reassign::ReassignCommand {
-                game_name: self.game_name,
-                voice: voice.clone(),
-                voice_location: voice_location.clone(),
-                target_voice: voice,
-                target_location: voice_location,
-                model: self.model,
-                rvc: self.rvc
-            };
-            command.run(config).await
-        } else {
-            // Handle pattern-based regeneration across all voices
-            let tts_sys = super::reassign::create_tts_system(config)?;
-            let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
-
-            // Get all voice lines matching patterns
-            let lines = game_sess
-                .voice_lines_by_filters(self.dialogue_pattern.as_deref(), self.file_pattern.as_deref())
-                .await?;
-
-            tracing::info!(todo = lines.len(), "Regenerating lines across all matching voices");
-
-            let mut voice_lines = lines
-                .into_iter()
-                .map(|(text, voice_ref)| VoiceLine {
-                    line: text,
-                    person: TtsVoice::ForceVoice(voice_ref),
-                    model: self.model.into(),
-                    force_generate: true,
-                    post: Some(PostProcessing {
-                        verify_percentage: None,
-                        trim_silence: true,
-                        normalise: true,
-                        rvc: self.rvc.then_some(RvcOptions {
-                            model: RvcModel::SeedVc,
-                            high_quality: true,
-                        }),
-                    }),
-                })
-                .collect_vec();
-
-            while let Some(line) = voice_lines.pop() {
-                if let Err(_) = game_sess.request_tts(line.clone()).await {
-                    // Retry failed ones
-                    tracing::debug!("Pushing {line:?} onto retry queue");
-                    voice_lines.push(line)
-                }
-            }
-
-            Ok(())
+        match self.sub_command.clone() {
+            RegenerateSubCommand::MissingLines => self.handle_missing_lines(config).await,
+            RegenerateSubCommand::Voice(sub_command) => self.run_voice(config, sub_command).await,
         }
+    }
+
+    async fn handle_missing_lines(self, config: SharedConfig) -> eyre::Result<()> {
+        let tts_sys = super::reassign::create_tts_system(config)?;
+        let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
+
+        let missing = Self::find_all_missing_voicelines(game_sess.session_db()).await?;
+
+        tracing::info!("Missing: {:#?} lines", missing.len());
+
+        self.process_line_requests(game_sess, missing).await
+    }
+
+    async fn run_voice(self, config: SharedConfig, voice: RegenerateVoice) -> eyre::Result<()> {
+        // Handle pattern-based regeneration across all voices
+        let tts_sys = super::reassign::create_tts_system(config)?;
+        let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
+
+        // Get all voice lines matching patterns
+        let lines = Self::find_matching_lines(game_sess.session_db(), voice).await?;
+
+        tracing::info!(todo = lines.len(), "Regenerating lines across all matching voices");
+
+        self.process_line_requests(game_sess, lines).await
+    }
+
+    async fn process_line_requests(
+        &self,
+        game_session: GameSessionHandle,
+        lines: Vec<(String, VoiceReference)>,
+    ) -> eyre::Result<()> {
+        let mut voice_lines = lines
+            .into_iter()
+            .map(|(text, voice_ref)| VoiceLine {
+                line: text,
+                person: TtsVoice::ForceVoice(voice_ref),
+                model: self.model.into(),
+                force_generate: true,
+                post: Some(PostProcessing {
+                    verify_percentage: None,
+                    trim_silence: true,
+                    normalise: true,
+                    rvc: self.rvc.then_some(RvcOptions {
+                        model: RvcModel::SeedVc,
+                        high_quality: true,
+                    }),
+                }),
+            })
+            .collect_vec();
+
+        while let Some(line) = voice_lines.pop() {
+            if let Err(_) = game_session.request_tts(line.clone()).await {
+                // Retry failed ones
+                tracing::debug!("Pushing {line:?} onto retry queue");
+                voice_lines.push(line)
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn find_matching_lines(
+        db: SessionDb,
+        voice_command: RegenerateVoice,
+    ) -> eyre::Result<Vec<(String, VoiceReference)>> {
+        let mut condition = sea_orm::Condition::all();
+
+        if let (Some(voice), Some(voice_location)) = (voice_command.voice, voice_command.voice_location) {
+            condition = condition
+                .add(db::voice_lines::Column::VoiceName.eq(voice))
+                .add(db::voice_lines::Column::VoiceLocation.eq(voice_location));
+        }
+
+        if let Some(pattern) = &voice_command.patterns.dialogue_pattern {
+            condition = condition.add(db::voice_lines::Column::DialogueText.like(pattern));
+        }
+
+        if let Some(pattern) = &voice_command.patterns.file_pattern {
+            condition = condition.add(db::voice_lines::Column::FileName.like(pattern));
+        }
+
+        if let Some(cutoff) = &voice_command.patterns.id_cutoff {
+            condition = condition.add(db::voice_lines::Column::Id.lt(*cutoff as u64))
+        }
+
+        let results: Vec<(String, String, String)> = db::voice_lines::Entity::find()
+            .select_only()
+            .columns([
+                db::voice_lines::Column::DialogueText,
+                db::voice_lines::Column::VoiceName,
+                db::voice_lines::Column::VoiceLocation,
+            ])
+            .filter(condition)
+            .into_tuple()
+            .all(db.reader())
+            .await?;
+
+        Ok(results
+            .into_iter()
+            .map(|(text, name, location)| {
+                (
+                    text,
+                    VoiceReference {
+                        name,
+                        location: location.into(),
+                    },
+                )
+            })
+            .collect())
+    }
+
+    async fn find_all_missing_voicelines(db: SessionDb) -> eyre::Result<Vec<(String, VoiceReference)>> {
+        use sqlx::Row;
+        // Could not figure out how to express the below in Sea-orm/seaquery, so raw sqlx it is
+        let rows = sqlx::query(
+            r#"
+        SELECT
+            d.dialogue_text       AS "dialogue_text",
+            c.voice_name          AS "voice_name",
+            c.voice_location      AS "voice_location"
+        FROM dialogue d
+        LEFT JOIN voice_lines v
+               ON d.dialogue_text = v.dialogue_text
+        LEFT JOIN characters c
+               ON c.id = d.character_id
+        WHERE v.id IS NULL
+        "#,
+        )
+        .fetch_all(db.reader().get_sqlite_connection_pool())
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get(0),
+                    VoiceReference {
+                        name: row.get(1),
+                        location: row.get::<String, _>(2).into(),
+                    },
+                )
+            })
+            .collect())
     }
 }

@@ -29,14 +29,14 @@ pub enum SubCommands {
     Compress(CompressCommand),
     /// Change the assignment of all characters with a given voice to a new voice, and regenerate their lines.
     #[clap(arg_required_else_help(true))]
-    #[clap(alias = "c")]
+    #[clap(alias = "reas")]
     ReassignVoice(ReassignCommand),
     /// Regenerate all the lines of the given voice.
     #[clap(arg_required_else_help(true))]
-    #[clap(alias = "c")]
+    #[clap(alias = "regen")]
     RegenerateLines(RegenerateCommand),
     #[clap(arg_required_else_help(true))]
-    #[clap(alias = "c")]
+    #[clap(alias = "m")]
     Migrate(MigrateCommand)
 }
 
