@@ -111,11 +111,11 @@ impl<T: TtsApi> TtsApi for ReadyTtsApi<T> {
     }
 }
 
-impl<T: DroppableState> DroppableState for ReadyTtsApi<T> {
+impl<T: DroppableState + TtsApi> DroppableState for ReadyTtsApi<T> {
     type Context = T::Context;
 
     async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
-        T::initialise_state(context).await.map(Self)
+        Self::new(T::initialise_state(context).await?).await
     }
 
     async fn on_kill(&mut self) -> eyre::Result<()> {

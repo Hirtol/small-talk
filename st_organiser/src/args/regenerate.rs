@@ -128,9 +128,9 @@ impl RegenerateCommand {
             .collect_vec();
 
         while let Some(line) = voice_lines.pop() {
-            if let Err(_) = game_session.request_tts(line.clone()).await {
+            if let Err(e) = game_session.request_tts(line.clone()).await {
                 // Retry failed ones
-                tracing::debug!("Pushing {line:?} onto retry queue");
+                tracing::debug!(?e, "Pushing {line:?} onto retry queue");
                 voice_lines.push(line)
             } else {
                 process_span.pb_inc(1)
@@ -198,14 +198,12 @@ impl RegenerateCommand {
         let rows = sqlx::query(
             r#"
         SELECT
-            d.dialogue_text       AS "dialogue_text",
-            c.voice_name          AS "voice_name",
-            c.voice_location      AS "voice_location"
+        DISTINCT d.dialogue_text, c.voice_name, c.voice_location
         FROM dialogue d
-        LEFT JOIN voice_lines v
-               ON d.dialogue_text = v.dialogue_text
-        LEFT JOIN characters c
-               ON c.id = d.character_id
+                 LEFT JOIN voice_lines v
+                           ON d.dialogue_text = v.dialogue_text
+                 LEFT JOIN characters c
+                           ON c.id = d.character_id
         WHERE v.id IS NULL
         "#,
         )
