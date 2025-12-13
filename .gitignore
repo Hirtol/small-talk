@@ -6,5 +6,5 @@
 Cargo.lock
 models
 artifacts*
-training
+/training
 bruno
