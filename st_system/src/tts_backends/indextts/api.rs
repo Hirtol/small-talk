@@ -2,10 +2,18 @@ use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
 use crate::audio::audio_data::AudioData;
+use crate::timeout::DroppableState;
+use crate::tts_backends::generic_backend::TtsApi;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexTtsApiConfig {
     pub address: Url
+}
+
+#[derive(Debug)]
+pub struct IndexTtsRequest {
+    pub text: String,
+    pub wav_file_bytes: Vec<u8>
 }
 
 #[derive(Debug, Clone)]
@@ -14,19 +22,10 @@ pub struct IndexTtsAPI {
     client: reqwest::Client,
 }
 
-impl IndexTtsAPI {
-    pub fn new(config: IndexTtsApiConfig) -> eyre::Result<Self> {
-        let client = ClientBuilder::default().build()?;
+impl TtsApi for IndexTtsAPI {
+    type Request = IndexTtsRequest;
 
-        Ok(Self {
-            config,
-            client,
-        })
-    }
-
-    /// Check whether this SeedVc instance is ready.
-    #[tracing::instrument(skip(self))]
-    pub async fn ready(&self) -> eyre::Result<bool> {
+    async fn ready(&self) -> eyre::Result<bool> {
         if let Ok(body) = self.client.get(self.url("/api/ready")?).send().await {
             Ok(body.text().await?.contains("true"))
         } else {
@@ -34,11 +33,8 @@ impl IndexTtsAPI {
         }
     }
 
-    /// Send a request for a generation to the given API.
-    ///
-    /// Returns the output path.
     #[tracing::instrument(skip(self))]
-    pub async fn tts(&self, request: IndexTtsRequest) -> eyre::Result<AudioData> {
+    async fn tts(&self, request: Self::Request) -> eyre::Result<AudioData> {
         let form = multipart::Form::new()
             .part(
                 "audio_file",
@@ -61,34 +57,31 @@ impl IndexTtsAPI {
 
         Ok(AudioData::new(&mut wav)?)
     }
+}
 
-    fn url(&self, path: &str) -> eyre::Result<Url> {
-        Ok(self.config.address.join(path)?)
+impl DroppableState for IndexTtsAPI {
+    type Context = IndexTtsApiConfig;
+
+    async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
+        Self::new(context.clone())
+    }
+
+    async fn on_kill(&mut self) -> eyre::Result<()> {
+        Ok(())
     }
 }
 
-#[derive(Debug)]
-pub struct IndexTtsRequest {
-    pub text: String,
-    pub wav_file_bytes: Vec<u8>
-}
+impl IndexTtsAPI {
+    pub fn new(config: IndexTtsApiConfig) -> eyre::Result<Self> {
+        let client = ClientBuilder::default().build()?;
 
-#[cfg(test)]
-mod tests {
-    use crate::tts_backends::indextts::api::{IndexTtsAPI, IndexTtsApiConfig, IndexTtsRequest};
-    use crate::tts_backends::indextts::IndexTts;
+        Ok(Self {
+            config,
+            client,
+        })
+    }
 
-    #[tokio::test]
-    async fn test_index_api() -> eyre::Result<()> {
-        let api = IndexTts::new(IndexTtsApiConfig {
-            address: "http://localhost:11996".try_into()?,
-        }).await?;
-
-        let wav = std::fs::read(r"G:\TTS\small-talk-data\game_data\Pathfinder-WOTR\voices\Regill\Neutral_13.wav")?;
-        let out = api.api.tts(IndexTtsRequest { text: "Hoe verloopt de solicitatie procedure? Ik ben een ‘normale’ baan gewend de afgelopen tijd kwa soliciteren, maar weet dus niet hoe dat verschilt ten opzichten van een traineeship.".into(), wav_file_bytes: wav }).await?;
-
-        out.write_to_wav_file("regil.wav".as_ref())?;
-
-        Ok(())
+    fn url(&self, path: &str) -> eyre::Result<Url> {
+        Ok(self.config.address.join(path)?)
     }
 }

@@ -1,23 +1,15 @@
-use eyre::{Context, ContextCompat};
-use std::{
-    path::{Path, PathBuf},
-    process::Stdio,
+use crate::{
+    audio::AudioData,
+    timeout::DroppableState,
+    tts_backends::{
+        docker_backend::{docker_utils::DockerTtsCreateConfig, DockerTemporaryState},
+        generic_backend::{ReadyTtsApi, TtsApi},
+        indextts::{
+            api::{IndexTtsAPI, IndexTtsApiConfig, IndexTtsRequest},
+            IndexTts,
+        },
+    },
 };
-use std::time::Duration;
-use bollard::container::StartContainerOptions;
-use bollard::Docker;
-use bollard::models::ContainerSummary;
-use process_wrap::tokio::TokioChildWrapper;
-use tokio::process::{Child, Command};
-use tokio::time::error::Elapsed;
-use crate::error::{RvcError, TtsError};
-use crate::timeout::{DroppableState, GcCell};
-use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
-use crate::tts_backends::docker_backend::DockerTemporaryState;
-use crate::tts_backends::docker_backend::docker_utils::DockerTtsCreateConfig;
-use crate::tts_backends::indextts::api::{IndexTtsApiConfig, IndexTtsRequest};
-use crate::tts_backends::indextts::IndexTts;
-use crate::tts_backends::indextts::text_processing::TextProcessor;
 
 const INDEX_TTS_DEFAULT_PORT: u16 = 11996;
 const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";
@@ -25,166 +17,34 @@ const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LocalIndexTtsConfig {
     pub image_name: String,
-    pub timeout: Duration
 }
 
 impl Default for LocalIndexTtsConfig {
     fn default() -> Self {
         Self {
-            image_name: "hirtol/index-tts-llvm:latest".to_string(),
-            timeout: std::time::Duration::from_secs(1800),
+            image_name: INDEX_DOCKER_IMAGE.to_string(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct LocalIndexHandle {
-    pub send: tokio::sync::mpsc::UnboundedSender<IndexMessage>,
-}
-
-#[derive(Debug)]
-pub enum IndexMessage {
-    /// Request the immediate start of the child process
-    StartInstance,
-    /// Request the immediate stop of the child process
-    StopInstance,
-    TtsRequest(BackendTtsRequest, tokio::sync::oneshot::Sender<BackendTtsResponse>),
-}
-
-impl LocalIndexHandle {
-    /// Create and start a new [LocalIndexTts] actor, returning the cloneable handle to the actor in the process.
-    pub fn new(config: LocalIndexTtsConfig) -> eyre::Result<Self> {
-        let term = papaya::HashMap::from([
-            ("tiefling".to_string(), "teefling".to_string()),
-            ("No.".into(), "No .".into()),
-        ]);
-
-        let (send, recv) = tokio::sync::mpsc::unbounded_channel();
-        let actor = LocalIndexTts {
-            text_processor: TextProcessor::new(term),
-            state: GcCell::new(config.timeout),
-            config,
-            recv,
-        };
-
-        tokio::task::spawn(async move {
-            if let Err(e) = actor.run().await {
-                tracing::error!("LocalIndexTts stopped with error: {e}");
-            }
-        });
-
-        Ok(Self { send })
-    }
-
-    pub async fn start_instance(&self) -> eyre::Result<()> {
-        Ok(self.send.send(IndexMessage::StartInstance)?)
-    }
-
-    pub async fn stop_instance(&self) -> eyre::Result<()> {
-        Ok(self.send.send(IndexMessage::StopInstance)?)
-    }
-
-    pub async fn submit_tts_request(&self, request: BackendTtsRequest) -> eyre::Result<BackendTtsResponse> {
-        let (send, recv) = tokio::sync::oneshot::channel();
-        self.send.send(IndexMessage::TtsRequest(request, send))?;
-
-        Ok(recv.await?)
-    }
-}
-
-struct LocalIndexTts {
-    text_processor: TextProcessor,
-    config: LocalIndexTtsConfig,
-    state: GcCell<TemporaryState>,
-    recv: tokio::sync::mpsc::UnboundedReceiver<IndexMessage>,
-}
-
-enum IndexTtsState {
-    Local(GcCell<LocalIndexTtsConfig>),
-    Remote(IndexTts),
-}
-
-struct TemporaryState {
+pub struct LocalIndexState {
     tts: IndexTts,
     docker: DockerTemporaryState,
 }
 
-impl LocalIndexTts {
+impl TtsApi for LocalIndexState {
+    type Request = IndexTtsRequest;
 
-    /// Start the actor, this future should be `tokio::spawn`ed.
-    ///
-    /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
-    #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> Result<(), TtsError> {
-        loop {
-            tokio::select! {
-                msg = self.recv.recv() => {
-                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
-                    // on our timeout
-                    match msg {
-                        Some(msg) => match self.handle_message(msg).await {
-                            Ok(_) => {}
-                            e => return e
-                        },
-                        None => {
-                            tracing::trace!("Stopping LocalIndexTts actor as channel was closed");
-                            self.state.kill_state().await?;
-                            break
-                        },
-                    }
-                },
-                _ = self.state.timeout_future() => {
-                    tracing::debug!("Timeout expired, dropping local IndexTts state");
-                    // Drop the state, killing the sub-process
-                    // Safe to do as we know that it won't be generating for us since we have exclusive access.
-                    self.state.kill_state().await?
-                }
-                else => break,
-            }
-        }
-
-        Ok(())
+    async fn ready(&self) -> eyre::Result<bool> {
+        self.tts.ready().await
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn handle_message(&mut self, message: IndexMessage) -> Result<(), TtsError> {
-        match message {
-            IndexMessage::StartInstance => {
-                self.state.get_state(&self.config).await?;
-            }
-            IndexMessage::StopInstance => {
-                self.state.kill_state().await?;
-            }
-            IndexMessage::TtsRequest(mut request, response) => {
-                let state = self.state.get_state(&self.config).await?;
-                let voice_sample = request.voice_reference.pop().context("No voice sample")?;
-
-                let req = IndexTtsRequest {
-                    text: self.text_processor.process(request.gen_text),
-                    wav_file_bytes: voice_sample.data().await?,
-                };
-
-                let now = std::time::Instant::now();
-                let mut tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts.api.tts(req)).await.context("Timeout elapsed")??;
-                let took = now.elapsed();
-
-                // IndexTTS generates a high-pitch crackle at and above the ~11Khz range. We apply a 10500 Hz low-pass filter to remove this crackle.
-                // (10500 instead of 11000 as our filtering crate isn't great)
-                tts_response.lowpass_filter(10500.);
-
-                let _ = response.send(BackendTtsResponse {
-                    gen_time: took,
-                    result: TtsResult::Audio(tts_response),
-                });
-
-                tracing::trace!(?took, "Finished handling of TTS request");
-            }
-        }
-        Ok(())
+    async fn tts(&self, request: Self::Request) -> eyre::Result<AudioData> {
+        self.tts.tts(request).await
     }
 }
 
-impl DroppableState for TemporaryState {
+impl DroppableState for LocalIndexState {
     type Context = LocalIndexTtsConfig;
 
     async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
@@ -195,64 +55,18 @@ impl DroppableState for TemporaryState {
         };
         let docker_state = DockerTemporaryState::initialise_state(&docker_config).await?;
 
-        let api = IndexTts::new(IndexTtsApiConfig {
+        let api = ReadyTtsApi::new(IndexTtsAPI::new(IndexTtsApiConfig {
             address: url::Url::parse(&docker_state.api_address)?,
-        }).await?;
+        })?)
+        .await?;
 
-        Ok(TemporaryState {
+        Ok(LocalIndexState {
             tts: api,
-            docker: docker_state
+            docker: docker_state,
         })
     }
 
     async fn on_kill(&mut self) -> eyre::Result<()> {
         self.docker.on_kill().await
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::time::Duration;
-    use biquad::DirectForm2Transposed;
-    use st_ml::emotion_classifier::BasicEmotion;
-    use crate::audio::audio_data::AudioData;
-    use crate::tts_backends::{BackendTtsRequest, TtsResult};
-    use crate::tts_backends::indextts::api::{IndexTtsAPI, IndexTtsApiConfig, IndexTtsRequest};
-    use crate::tts_backends::indextts::IndexTts;
-    use crate::tts_backends::indextts::local::{LocalIndexHandle, LocalIndexTtsConfig};
-    use crate::voice_manager::FsVoiceSample;
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_index_api() -> eyre::Result<()> {
-        let thing = LocalIndexTtsConfig {
-            image_name: "hirtol/index-tts-llvm:latest".to_string(),
-            timeout: Duration::from_secs(60),
-        };
-        let api = LocalIndexHandle::new(thing)?;
-
-        let wav = std::fs::read(r"G:\TTS\small-talk-data\game_data\Pathfinder-WOTR\voices\Regill\Neutral_13.wav")?;
-        let out = api.submit_tts_request(BackendTtsRequest {
-            gen_text: "At the beginning of every test, the macro injects span opening code.".to_string(),
-            language: "en".to_string(),
-            voice_reference: vec![FsVoiceSample {
-                emotion: BasicEmotion::Neutral,
-                spoken_text: None,
-                sample: PathBuf::from(r"G:\TTS\small-talk-data\game_data\Pathfinder-WOTR\voices\Regill\Neutral_13.wav"),
-            }],
-            speed: None,
-        }).await?;
-
-        match out.result {
-            TtsResult::File(_) => {}
-            TtsResult::Audio(out) => {
-                out.write_to_wav_file("regil.wav".as_ref())?;
-            }
-            TtsResult::Stream => {}
-        }
-
-        Ok(())
-    }
-
 }

@@ -4,7 +4,7 @@ use crate::{
     error::TtsError,
     timeout::DroppableState,
     tts_backends::{
-        alltalk::local::LocalAllTalkHandle, echo_tts::local::LocalEchoHandle, indextts::local::LocalIndexHandle,
+        alltalk::local::LocalAllTalkHandle, echo_tts::local::LocalEchoHandle,
     },
     voice_manager::FsVoiceSample,
 };
@@ -12,13 +12,14 @@ use eyre::Context;
 use st_ml::stt::WhisperTranscribe;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
+use indextts::IndexTtsHandle;
 
 pub mod docker_backend;
 pub mod alltalk;
 pub mod echo_tts;
 pub mod indextts;
 pub mod chunking;
-
+pub mod generic_backend;
 
 pub type Result<T> = std::result::Result<T, TtsError>;
 
@@ -26,7 +27,7 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 #[derive(Clone)]
 pub struct TtsCoordinator {
     pub xtts: Option<LocalAllTalkHandle>,
-    pub index_tts: Option<LocalIndexHandle>,
+    pub index_tts: Option<IndexTtsHandle>,
     pub echo_tts: Option<LocalEchoHandle>,
     whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
     whisper_path: PathBuf,
@@ -38,7 +39,7 @@ impl TtsCoordinator {
     /// If no TtsBackend model is provided all requests will return with [TtsError::ModelNotInitialised].
     pub fn new(
         xtts_all_talk: Option<LocalAllTalkHandle>,
-        index_tts: Option<LocalIndexHandle>,
+        index_tts: Option<IndexTtsHandle>,
         echo_tts: Option<LocalEchoHandle>,
         whisper_path: PathBuf,
     ) -> Self {

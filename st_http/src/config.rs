@@ -65,7 +65,7 @@ pub struct Config {
     #[serde(default)]
     pub xtts: SubsystemConfig<TtsConfig>,
     #[serde(default)]
-    pub index_tts: SubsystemConfig<st_system::tts_backends::indextts::local::LocalIndexTtsConfig>,
+    pub index_tts: SubsystemConfig<st_system::tts_backends::indextts::IndexTtsConfig>,
     #[serde(default)]
     pub echo_tts: SubsystemConfig<st_system::tts_backends::echo_tts::local::LocalEchoTtsConfig>,
     #[serde(default)]

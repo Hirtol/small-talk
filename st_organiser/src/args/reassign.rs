@@ -13,7 +13,7 @@ use st_system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHa
 use st_system::tts_backends::TtsCoordinator;
 use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsSystem, TtsVoice, VoiceLine};
 use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
-use st_system::tts_backends::indextts::local::LocalIndexHandle;
+use st_system::tts_backends::indextts::IndexTtsHandle;
 use st_system::voice_manager::{VoiceDestination, VoiceManager, VoiceReference};
 use crate::args::ClapTtsModel;
 
@@ -115,7 +115,7 @@ pub(crate) fn create_tts_system(config: SharedConfig) -> eyre::Result<Arc<TtsSys
     let index = config
         .index_tts
         .if_enabled()
-        .map(|cfg| LocalIndexHandle::new(cfg.clone()))
+        .map(|cfg| IndexTtsHandle::new(cfg.clone()))
         .transpose()?;
     let echo = config
         .echo_tts

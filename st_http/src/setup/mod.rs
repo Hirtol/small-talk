@@ -20,7 +20,7 @@ use st_system::{
         },
         indextts::{
             api::IndexTtsApiConfig,
-            local::{LocalIndexHandle, LocalIndexTtsConfig},
+            LocalIndexTtsConfig,
         },
         TtsCoordinator,
     },
@@ -35,6 +35,7 @@ use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, services::ServeFile, trace::TraceLayer};
 use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
+use st_system::tts_backends::indextts::IndexTtsHandle;
 
 mod first_time;
 
@@ -69,7 +70,7 @@ impl Application {
         let index = config
             .index_tts
             .if_enabled()
-            .map(|cfg| LocalIndexHandle::new(cfg.clone()))
+            .map(|cfg| IndexTtsHandle::new(cfg.clone()))
             .transpose()?;
 
         let echo = config

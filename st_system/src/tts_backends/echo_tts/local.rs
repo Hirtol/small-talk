@@ -8,9 +8,7 @@ use bollard::container::StartContainerOptions;
 use bollard::Docker;
 use bollard::models::ContainerSummary;
 use process_wrap::tokio::TokioChildWrapper;
-use tokio::{
-    process::{Child, Command},
-};
+use tokio::process::{Child, Command};
 use tokio::time::error::Elapsed;
 use crate::error::{RvcError, TtsError};
 use crate::timeout::{DroppableState, GcCell};
@@ -20,7 +18,6 @@ use crate::tts_backends::echo_tts::api::{EchoTtsApiConfig, EchoTtsRequest};
 use crate::tts_backends::echo_tts::EchoTts;
 use crate::tts_backends::echo_tts::text_processing::TextProcessor;
 use crate::tts_backends::indextts::api::{IndexTtsApiConfig, IndexTtsRequest};
-use crate::tts_backends::indextts::IndexTts;
 
 const ECHO_TTS_DOCKER_PORT: u16 = 8000;
 const ECHO_TTS_DOCKER_IMAGE: &str = "hirtol/echo-tts:latest";
@@ -256,7 +253,7 @@ mod docker {
     use bollard::Docker;
     use bollard::image::CreateImageOptions;
     use bollard::models::{ContainerSummary, DeviceRequest, HostConfig};
-    use eyre::{ContextCompat};
+    use eyre::ContextCompat;
     use crate::tts_backends::echo_tts::local::{ECHO_TTS_DOCKER_IMAGE, ECHO_TTS_DOCKER_PORT};
 
     macro_rules! hashmap {
@@ -347,8 +344,8 @@ mod tests {
     use crate::tts_backends::{BackendTtsRequest, TtsResult};
     use crate::tts_backends::echo_tts::local::{LocalEchoHandle, LocalEchoTtsConfig, ECHO_TTS_DOCKER_IMAGE};
     use crate::tts_backends::indextts::api::{IndexTtsAPI, IndexTtsApiConfig, IndexTtsRequest};
-    use crate::tts_backends::indextts::IndexTts;
-    use crate::tts_backends::indextts::local::{LocalIndexHandle, LocalIndexTtsConfig};
+    use crate::tts_backends::indextts::IndexTtsHandle;
+    use crate::tts_backends::indextts::local::LocalIndexTtsConfig;
     use crate::voice_manager::FsVoiceSample;
 
     #[tokio::test]
