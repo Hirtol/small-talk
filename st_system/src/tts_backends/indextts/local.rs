@@ -8,18 +8,19 @@ use bollard::container::StartContainerOptions;
 use bollard::Docker;
 use bollard::models::ContainerSummary;
 use process_wrap::tokio::TokioChildWrapper;
-use tokio::{
-    process::{Child, Command},
-};
+use tokio::process::{Child, Command};
 use tokio::time::error::Elapsed;
 use crate::error::{RvcError, TtsError};
 use crate::timeout::{DroppableState, GcCell};
 use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsResult};
+use crate::tts_backends::docker_backend::DockerTemporaryState;
+use crate::tts_backends::docker_backend::docker_utils::DockerTtsCreateConfig;
 use crate::tts_backends::indextts::api::{IndexTtsApiConfig, IndexTtsRequest};
 use crate::tts_backends::indextts::IndexTts;
 use crate::tts_backends::indextts::text_processing::TextProcessor;
 
 const INDEX_TTS_DEFAULT_PORT: u16 = 11996;
+const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LocalIndexTtsConfig {
@@ -98,10 +99,14 @@ struct LocalIndexTts {
     recv: tokio::sync::mpsc::UnboundedReceiver<IndexMessage>,
 }
 
+enum IndexTtsState {
+    Local(GcCell<LocalIndexTtsConfig>),
+    Remote(IndexTts),
+}
+
 struct TemporaryState {
     tts: IndexTts,
-    daemon: Docker,
-    docker_container: ContainerSummary,
+    docker: DockerTemporaryState,
 }
 
 impl LocalIndexTts {
@@ -183,134 +188,27 @@ impl DroppableState for TemporaryState {
     type Context = LocalIndexTtsConfig;
 
     async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
-        #[tracing::instrument]
-        async fn start_indextts(daemon: &Docker) -> eyre::Result<ContainerSummary> {
-            tracing::debug!("Attempting to start IndexTts process");
-            let container = docker::find_or_create_container(daemon, "small-talk-index-tts-vllm").await?;
-
-            daemon.start_container(container.id.as_deref().unwrap(), None::<StartContainerOptions<String>>).await?;
-            // Need to query again as we might get a randomly assigned IP address
-            let final_container = docker::find_or_create_container(daemon, "small-talk-index-tts-vllm").await?;
-
-            Ok(final_container)
-        }
-
-        let daemon = bollard::Docker::connect_with_local_defaults()?;
-        let container = start_indextts(&daemon).await?;
-
-        let container_port = if let Some(ports) = &container.ports {
-            ports.first().and_then(|p| p.public_port).unwrap_or(INDEX_TTS_DEFAULT_PORT)
-        } else {
-            INDEX_TTS_DEFAULT_PORT
+        let docker_config = DockerTtsCreateConfig {
+            container_name: "small-talk-index-tts".to_string(),
+            image_name: context.image_name.clone(),
+            internal_port: INDEX_TTS_DEFAULT_PORT,
         };
-        let api_address = format!("http://localhost:{container_port}");
-        tracing::debug!(?api_address, "Started IndexTts container");
+        let docker_state = DockerTemporaryState::initialise_state(&docker_config).await?;
 
         let api = IndexTts::new(IndexTtsApiConfig {
-            address: url::Url::parse(&api_address)?,
+            address: url::Url::parse(&docker_state.api_address)?,
         }).await?;
 
         Ok(TemporaryState {
             tts: api,
-            daemon,
-            docker_container: container,
+            docker: docker_state
         })
     }
 
     async fn on_kill(&mut self) -> eyre::Result<()> {
-        self.daemon.stop_container(self.docker_container.id.as_deref().unwrap(), None).await?;
-        Ok(())
+        self.docker.on_kill().await
     }
 }
-
-mod docker {
-    use std::collections::HashMap;
-    use bollard::container::{Config, CreateContainerOptions, ListContainersOptions};
-    use bollard::Docker;
-    use bollard::image::CreateImageOptions;
-    use bollard::models::{ContainerSummary, DeviceRequest, HostConfig};
-    use eyre::{ContextCompat};
-    use crate::tts_backends::indextts::local::INDEX_TTS_DEFAULT_PORT;
-
-    const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";
-
-    macro_rules! hashmap {
-        ($( $key: expr => $val: expr ),* $(,)?) => {{
-            let mut map = std::collections::HashMap::new();
-            $( map.insert($key, $val); )*
-            map
-        }};
-    }
-
-    pub async fn find_or_create_container(daemon: &Docker, name: &str) -> eyre::Result<ContainerSummary> {
-        use futures::stream::StreamExt;
-        let container = find_container(daemon, name).await?;
-
-        if let Some(container) = container {
-            Ok(container)
-        } else {
-            // First pull the image if it doesn't exist. TODO: Verify this is done correctly
-            let _ = daemon.create_image(Some(CreateImageOptions {
-                from_image: INDEX_DOCKER_IMAGE,
-                .. Default::default()
-            }), None, None).next().await;
-
-            let create_options = CreateContainerOptions {
-                name,
-                platform: None,
-            };
-            // Randomly assign a port
-            let host_config: HostConfig = HostConfig {
-                extra_hosts: Some(vec!["host.docker.internal:host-gateway".into()]),
-                port_bindings: Some(hashmap! {
-                    INDEX_TTS_DEFAULT_PORT.to_string() => None,
-                }),
-                device_requests: Some(vec![DeviceRequest {
-                    driver: Some("".into()),
-                    count: Some(-1),
-                    device_ids: None,
-                    capabilities: Some(vec![vec!["gpu".into()]]),
-                    options: Some(HashMap::new()),
-                }]),
-                ..Default::default()
-            };
-
-            let empty = HashMap::<(), ()>::new();
-            let mut exposed_ports = HashMap::new();
-            let exposed_port = format!("{INDEX_TTS_DEFAULT_PORT}");
-            exposed_ports.insert(&*exposed_port, empty);
-            let config = Config {
-                image: Some(INDEX_DOCKER_IMAGE),
-                cmd: None,
-                exposed_ports: Some(exposed_ports),
-                host_config: Some(host_config),
-                ..Default::default()
-            };
-
-            let _container = daemon.create_container(Some(create_options), config).await?;
-
-            find_container(daemon, name).await?.context("Failed to create container")
-        }
-    }
-
-    pub async fn find_container(daemon: &Docker, name: &str) -> eyre::Result<Option<ContainerSummary>> {
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
-        map.insert("name".to_string(), vec![name.to_string()]);
-        let opts = ListContainersOptions {
-            all: true,
-            limit: None,
-            size: false,
-            filters: map,
-        };
-
-        Ok(daemon
-            .list_containers(Some(opts))
-            .await?
-            .into_iter()
-            .next())
-    }
-}
-
 
 #[cfg(test)]
 mod tests {

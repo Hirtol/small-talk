@@ -40,7 +40,7 @@ pub enum RegenerateSubCommand {
 pub struct RegenerateVoice {
     /// The voice to change (optional: if not provided, all matching voices will be regenerated)
     #[clap(long, short)]
-    voice: Option<String>,
+    voice: Option<Vec<String>>,
     /// The location, either 'global' or '{GAME_NAME}' (optional)
     #[clap(long, short)]
     voice_location: Option<String>,
@@ -67,7 +67,7 @@ impl RegenerateCommand {
     pub async fn run(self, config: SharedConfig) -> eyre::Result<()> {
         match self.sub_command.clone() {
             RegenerateSubCommand::MissingLines => self.handle_missing_lines(config).await,
-            RegenerateSubCommand::Voice(sub_command) => self.run_voice(config, sub_command).await,
+            RegenerateSubCommand::Voice(sub_command) => self.handle_voice_regen(config, sub_command).await,
         }
     }
 
@@ -84,13 +84,13 @@ impl RegenerateCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn run_voice(self, config: SharedConfig, voice: RegenerateVoice) -> eyre::Result<()> {
+    async fn handle_voice_regen(self, config: SharedConfig, voice: RegenerateVoice) -> eyre::Result<()> {
         // Handle pattern-based regeneration across all voices
         let tts_sys = super::reassign::create_tts_system(config)?;
         let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
 
         // Get all voice lines matching patterns
-        let lines = Self::find_matching_lines(game_sess.session_db(), voice).await?;
+        let lines = Self::find_matching_lines(game_sess.session_db(), voice.voice, voice.voice_location, voice.patterns).await?;
 
         tracing::info!(todo = lines.len(), "Regenerating lines across all matching voices");
 
@@ -142,25 +142,27 @@ impl RegenerateCommand {
 
     async fn find_matching_lines(
         db: SessionDb,
-        voice_command: RegenerateVoice,
+        voices: Option<Vec<String>>,
+        voice_location: Option<String>,
+        filters: RegenerateFilters,
     ) -> eyre::Result<Vec<(String, VoiceReference)>> {
         let mut condition = sea_orm::Condition::all();
 
-        if let (Some(voice), Some(voice_location)) = (voice_command.voice, voice_command.voice_location) {
+        if let (Some(voices), Some(voice_location)) = (voices, voice_location) {
             condition = condition
-                .add(db::voice_lines::Column::VoiceName.eq(voice))
+                .add(db::voice_lines::Column::VoiceName.is_in(voices))
                 .add(db::voice_lines::Column::VoiceLocation.eq(voice_location));
         }
 
-        if let Some(pattern) = &voice_command.patterns.dialogue_pattern {
+        if let Some(pattern) = &filters.dialogue_pattern {
             condition = condition.add(db::voice_lines::Column::DialogueText.like(pattern));
         }
 
-        if let Some(pattern) = &voice_command.patterns.file_pattern {
+        if let Some(pattern) = &filters.file_pattern {
             condition = condition.add(db::voice_lines::Column::FileName.like(pattern));
         }
 
-        if let Some(cutoff) = &voice_command.patterns.id_cutoff {
+        if let Some(cutoff) = &filters.id_cutoff {
             condition = condition.add(db::voice_lines::Column::Id.lt(*cutoff as u64))
         }
 

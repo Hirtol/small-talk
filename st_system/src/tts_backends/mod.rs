@@ -13,10 +13,12 @@ use st_ml::stt::WhisperTranscribe;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
+pub mod docker_backend;
 pub mod alltalk;
 pub mod echo_tts;
 pub mod indextts;
 pub mod chunking;
+
 
 pub type Result<T> = std::result::Result<T, TtsError>;
 
