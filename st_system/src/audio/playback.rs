@@ -117,7 +117,7 @@ pub struct PlaybackEngine {
 }
 
 impl PlaybackEngine {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(name="run_playback", skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         // There is no callback/future we can use to detect a finished line, so we'll just have to poll it.
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));

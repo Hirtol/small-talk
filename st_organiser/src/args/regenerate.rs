@@ -5,6 +5,9 @@ use sea_orm::{
     SelectColumns,
     Statement,
 };
+use tracing::Span;
+use tracing_indicatif::span_ext::IndicatifSpanExt;
+use tracing_indicatif::style::ProgressStyle;
 use st_http::config::SharedConfig;
 use st_system::{
     session::{db, db::SessionDb, GameSessionHandle}, voice_manager::VoiceReference, PostProcessing, RvcModel, RvcOptions, TtsSystem,
@@ -68,6 +71,7 @@ impl RegenerateCommand {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn handle_missing_lines(self, config: SharedConfig) -> eyre::Result<()> {
         let tts_sys = super::reassign::create_tts_system(config)?;
         let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
@@ -79,6 +83,7 @@ impl RegenerateCommand {
         self.process_line_requests(game_sess, missing).await
     }
 
+    #[tracing::instrument(skip_all)]
     async fn run_voice(self, config: SharedConfig, voice: RegenerateVoice) -> eyre::Result<()> {
         // Handle pattern-based regeneration across all voices
         let tts_sys = super::reassign::create_tts_system(config)?;
@@ -97,6 +102,12 @@ impl RegenerateCommand {
         game_session: GameSessionHandle,
         lines: Vec<(String, VoiceReference)>,
     ) -> eyre::Result<()> {
+        let process_span = tracing::info_span!("process_line_request");
+        process_span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg} ETA {eta_precise}")?);
+        process_span.pb_set_length(lines.len() as u64);
+        process_span.pb_set_message("Processing lines");
+        let _guard = process_span.enter();
+
         let mut voice_lines = lines
             .into_iter()
             .map(|(text, voice_ref)| VoiceLine {
@@ -121,6 +132,8 @@ impl RegenerateCommand {
                 // Retry failed ones
                 tracing::debug!("Pushing {line:?} onto retry queue");
                 voice_lines.push(line)
+            } else {
+                process_span.pb_inc(1)
             }
         }
 

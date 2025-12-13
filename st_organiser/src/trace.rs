@@ -1,44 +1,24 @@
-use indicatif::{ProgressState, ProgressStyle};
 use std::{fmt, time::Duration};
+use indicatif::ProgressState;
 use tracing::Subscriber;
+use tracing_indicatif::filter::{hide_indicatif_span_fields, IndicatifFilter};
 use tracing_indicatif::IndicatifLayer;
+use tracing_indicatif::style::ProgressStyle;
 use tracing_subscriber::{
     fmt::{format::Writer, time::FormatTime},
     layer::SubscriberExt,
     EnvFilter, Layer,
 };
+use tracing_subscriber::fmt::format::DefaultFields;
 
 pub fn create_subscriber(default_directives: &str) -> impl Subscriber {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directives));
     let indicatif_layer = IndicatifLayer::new()
         .with_progress_style(
             ProgressStyle::with_template(
-                "{color_start}{span_child_prefix}{spinner} {span_name} {wide_msg} {elapsed_subsec}{color_end}",
+                "{span_child_prefix}{spinner} {span_name} {wide_msg} {elapsed_precise}",
             )
-            .unwrap()
-            .with_key("elapsed_subsec", elapsed_subsec)
-            .with_key(
-                "color_start",
-                |state: &ProgressState, writer: &mut dyn std::fmt::Write| {
-                    let elapsed = state.elapsed();
-
-                    if elapsed > Duration::from_secs(8) {
-                        // Red
-                        let _ = write!(writer, "\x1b[{}m", 1 + 30);
-                    } else if elapsed > Duration::from_secs(4) {
-                        // Yellow
-                        let _ = write!(writer, "\x1b[{}m", 3 + 30);
-                    }
-                },
-            )
-            .with_key(
-                "color_end",
-                |state: &ProgressState, writer: &mut dyn std::fmt::Write| {
-                    if state.elapsed() > Duration::from_secs(4) {
-                        let _ = write!(writer, "\x1b[0m");
-                    }
-                },
-            ),
+            .unwrap(),
         )
         .with_span_child_prefix_symbol("↳ ")
         .with_span_child_prefix_indent(" ");
@@ -51,11 +31,11 @@ pub fn create_subscriber(default_directives: &str) -> impl Subscriber {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
-                .with_writer(indicatif_layer.get_stderr_writer())
                 .event_format(format)
+                .with_writer(indicatif_layer.get_stderr_writer())
                 .with_filter(env_filter),
         )
-        .with(indicatif_layer)
+        .with(indicatif_layer.with_filter(tracing_subscriber::filter::filter_fn(|m| m.target().contains("st_organiser"))))
 }
 
 struct Uptime(std::time::Instant);
@@ -72,10 +52,4 @@ impl FormatTime for Uptime {
         let sub_seconds = (e.as_millis() % 1000) / 100;
         write!(w, "{}.{}s", e.as_secs(), sub_seconds)
     }
-}
-
-fn elapsed_subsec(state: &ProgressState, writer: &mut dyn std::fmt::Write) {
-    let seconds = state.elapsed().as_secs();
-    let sub_seconds = (state.elapsed().as_millis() % 1000) / 100;
-    let _ = writer.write_str(&format!("{}.{}s", seconds, sub_seconds));
 }
