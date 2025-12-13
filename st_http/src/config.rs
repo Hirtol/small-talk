@@ -67,7 +67,7 @@ pub struct Config {
     #[serde(default)]
     pub index_tts: SubsystemConfig<st_system::tts_backends::indextts::IndexTtsConfig>,
     #[serde(default)]
-    pub echo_tts: SubsystemConfig<st_system::tts_backends::echo_tts::local::LocalEchoTtsConfig>,
+    pub echo_tts: SubsystemConfig<st_system::tts_backends::echo_tts::EchoTtsConfig>,
     #[serde(default)]
     pub seed_vc: SubsystemConfig<RvcConfig>,
 }

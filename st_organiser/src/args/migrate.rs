@@ -7,7 +7,7 @@ use st_system::rvc_backends::seedvc::local::{LocalSeedHandle, LocalSeedVcConfig}
 use st_system::tts_backends::alltalk::local::{LocalAllTalkConfig, LocalAllTalkHandle};
 use st_system::tts_backends::TtsCoordinator;
 use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsSystem, TtsVoice, VoiceLine};
-use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
+use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
 
 #[derive(clap::Args, Debug)]
@@ -111,7 +111,7 @@ fn create_tts_system(config: SharedConfig) -> eyre::Result<Arc<TtsSystem>> {
     let echo = config
         .echo_tts
         .if_enabled()
-        .map(|cfg| LocalEchoHandle::new(cfg.clone()))
+        .map(|cfg| EchoTtsHandle::new(cfg.clone()))
         .transpose()?;
 
     let tts_backend = TtsCoordinator::new(xtts, index, echo, config.dirs.whisper_model.clone());

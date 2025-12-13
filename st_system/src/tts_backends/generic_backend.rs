@@ -79,6 +79,7 @@ pub trait TtsApi {
     async fn tts(&self, request: Self::Request) -> eyre::Result<AudioData>;
 }
 
+/// Waits for the delegate API to be ready to accept requests.
 pub struct ReadyTtsApi<T>(T);
 
 impl<T: TtsApi> ReadyTtsApi<T> {

@@ -14,32 +14,22 @@ pub struct Chunk {
     pub cost: usize,
 }
 
-fn estimate_word_count(text: &str) -> usize {
-    text.split_whitespace().count()
-}
-
-fn calculate_chunk_cost(text: &str) -> usize {
-    text.chars()
-        .map(|c| match c {
-            '.' => 5,
-            ',' => 3,
-            '-' => 3,
-            ';' => 3,
-            _ => 1,
-        })
-        .sum()
-}
-
+/// Chunk the given text such that no single chunk will exceed `max_words_count` or `max_chunk_cost`.
+///
+/// ## Chunk Cost
+///
+/// Chunk cost is calculated based on the amount of characters in the string, with heavier weighting for 'pause'
+/// characters such as commas, full stops, semicolons, or em-dashes. See [calculate_chunk_cost].
 pub fn chunk_text(
     text: &str,
-    max_words_size: usize,
+    max_words_count: usize,
     max_chunk_cost: usize,
 ) -> Vec<Chunk> {
     let total_words = estimate_word_count(text);
     let total_cost = calculate_chunk_cost(text);
 
     // Fits in a single chunk
-    if total_words <= max_words_size && total_cost <= max_chunk_cost {
+    if total_words <= max_words_count && total_cost <= max_chunk_cost {
         return vec![Chunk {
             text: text.to_string(),
             word_count: total_words,
@@ -61,7 +51,7 @@ pub fn chunk_text(
         let cst = calculate_chunk_cost(sent);
 
         // Splitting sentence
-        if wc > max_words_size || cst > max_chunk_cost {
+        if wc > max_words_count || cst > max_chunk_cost {
             // flush current
             if !current.trim().is_empty() {
                 chunks.push(Chunk {
@@ -75,12 +65,12 @@ pub fn chunk_text(
             }
 
             // Recurse
-            chunks.extend(split_long_sentence(sent, max_words_size, max_chunk_cost));
+            chunks.extend(split_long_sentence(sent, max_words_count, max_chunk_cost));
             continue;
         }
 
         // Appends to current if safe
-        if (curr_words + wc <= max_words_size)
+        if (curr_words + wc <= max_words_count)
             && (curr_cost + cst <= max_chunk_cost)
         {
             current.push_str(sent);
@@ -111,6 +101,22 @@ pub fn chunk_text(
     }
 
     chunks
+}
+
+fn estimate_word_count(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+fn calculate_chunk_cost(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c {
+            '.' => 5,
+            ',' => 3,
+            '-' => 3,
+            ';' => 3,
+            _ => 1,
+        })
+        .sum()
 }
 
 fn split_long_sentence(
@@ -212,15 +218,12 @@ fn split_by_word_cut(text: &str, max_words: usize) -> Vec<Chunk> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tts_backends::chunking::{chunk_text, SENTENCE_SPLIT_REGEX};
+    use crate::tts_backends::chunking::{chunk_text};
 
     #[test]
     fn test_chunk_calculate() {
-        let test_sentence = r#"A carpet of fragrant grasses spreads out at the trees' roots, with islands of phosphorescent moss and lichen dotted here and there. Small, smooth stones with a strange, mirrored surface are scattered across the stream bed in which Hirtol is standing.
-           "#;
+        let test_sentence = r#"A carpet of fragrant grasses spreads out at the trees' roots, with islands of phosphorescent moss and lichen dotted here and there. Small, smooth stones with a strange, mirrored surface are scattered across the stream bed in which Hirtol is standing."#;
 
-        // let out = SENTENCE_SPLIT_REGEX.split(test_sentence).collect::<Vec<&str>>();
-        let re = &*SENTENCE_SPLIT_REGEX;
         let out = chunk_text(test_sentence, 70, 500);
         println!("{:#?}", out);
     }

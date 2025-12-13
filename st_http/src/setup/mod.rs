@@ -34,7 +34,7 @@ use std::{
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, services::ServeFile, trace::TraceLayer};
-use st_system::tts_backends::echo_tts::local::LocalEchoHandle;
+use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
 
 mod first_time;
@@ -76,7 +76,7 @@ impl Application {
         let echo = config
             .echo_tts
             .if_enabled()
-            .map(|cfg| LocalEchoHandle::new(cfg.clone()))
+            .map(|cfg| EchoTtsHandle::new(cfg.clone()))
             .transpose()?;
 
         let tts_backend = TtsCoordinator::new(xtts, index, echo, config.dirs.whisper_model.clone());

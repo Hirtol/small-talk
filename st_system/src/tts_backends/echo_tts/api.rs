@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use rand::Rng;
 use url::Url;
+use crate::timeout::DroppableState;
+use crate::tts_backends::generic_backend::TtsApi;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EchoTtsApiConfig {
@@ -16,15 +18,11 @@ pub struct EchoTtsAPI {
     client: reqwest::Client,
 }
 
-impl EchoTtsAPI {
-    pub fn new(config: EchoTtsApiConfig) -> eyre::Result<Self> {
-        let client = ClientBuilder::default().build()?;
-
-        Ok(Self { config, client })
-    }
+impl TtsApi for EchoTtsAPI {
+    type Request = EchoTtsRequest;
 
     #[tracing::instrument(skip(self))]
-    pub async fn ready(&self) -> eyre::Result<bool> {
+    async fn ready(&self) -> eyre::Result<bool> {
         if let Ok(body) = self.client.get(self.url("/api/ready")?).send().await {
             Ok(body.text().await?.contains("true"))
         } else {
@@ -32,11 +30,8 @@ impl EchoTtsAPI {
         }
     }
 
-    /// Send a request for a generation to the given API.
-    ///
-    /// Returns the output path.
     #[tracing::instrument(skip(self))]
-    pub async fn tts(&self, request: EchoTtsRequest) -> eyre::Result<AudioData> {
+    async fn tts(&self, request: Self::Request) -> eyre::Result<AudioData> {
         let form = multipart::Form::new()
             .part(
                 "audio_file",
@@ -63,6 +58,26 @@ impl EchoTtsAPI {
 
         Ok(AudioData::new(&mut wav)?)
     }
+}
+
+impl DroppableState for EchoTtsAPI {
+    type Context = EchoTtsApiConfig;
+
+    async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
+        Self::new(context.clone())
+    }
+
+    async fn on_kill(&mut self) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+impl EchoTtsAPI {
+    pub fn new(config: EchoTtsApiConfig) -> eyre::Result<Self> {
+        let client = ClientBuilder::default().build()?;
+
+        Ok(Self { config, client })
+    }
 
     fn url(&self, path: &str) -> eyre::Result<Url> {
         Ok(self.config.address.join(path)?)
@@ -83,33 +98,5 @@ impl Debug for EchoTtsRequest {
             .field("num_steps", &self.num_steps)
             .field("sequence_length", &self.sequence_length)
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::tts_backends::echo_tts::{
-        api::{EchoTtsApiConfig, EchoTtsRequest},
-        EchoTts,
-    };
-
-    #[tokio::test]
-    async fn test_index_api() -> eyre::Result<()> {
-        let api = EchoTts::new(EchoTtsApiConfig {
-            address: "http://localhost:11997".try_into()?,
-        })
-        .await?;
-
-        let wav = std::fs::read(r"G:\TTS\small-talk-data\game_data\Pathfinder-WOTR\voices\Regill\Neutral_13.wav")?;
-        let out = api.api.tts(EchoTtsRequest {
-            text: "Hoe verloopt de solicitatie procedure? Ik ben een ‘normale’ baan gewend de afgelopen tijd kwa soliciteren, maar weet dus niet hoe dat verschilt ten opzichten van een traineeship.".into(),
-            num_steps: None,
-            sequence_length: None,
-            wav_file_bytes: wav,
-        }).await?;
-
-        out.write_to_wav_file("regil.wav".as_ref())?;
-
-        Ok(())
     }
 }

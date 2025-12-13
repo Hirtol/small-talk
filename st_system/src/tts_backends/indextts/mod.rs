@@ -33,7 +33,7 @@ impl Default for IndexTtsConfig {
             state: ActiveTtsStateConfig::Local {
                 local_config: Default::default(),
             },
-            state_timeout: std::time::Duration::from_secs(1800),
+            state_timeout: Duration::from_secs(1800),
         }
     }
 }
