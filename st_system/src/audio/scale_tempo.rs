@@ -234,7 +234,7 @@ pub fn to_kira_frames(samples: Vec<f32>) -> std::sync::Arc<[Frame]> {
             right: chunk[1],
         })
         .collect();
-    unsafe { new_samples.into() }
+    new_samples.into()
 }
 
 pub struct RefInterlacedSamples<'a>(pub &'a [Frame]);

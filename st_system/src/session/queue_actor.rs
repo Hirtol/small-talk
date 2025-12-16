@@ -21,6 +21,7 @@ use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec
 use tracing::Instrument;
 use crate::audio::postprocessing;
 use crate::audio::audio_data::AudioData;
+use crate::session::metadata::VoicelineMetadata;
 
 pub type SingleRequest = (
     VoiceLineRequest,
@@ -215,7 +216,7 @@ impl GameQueueActor {
         };
 
         let out = self
-            .finalise_response(self.data.game_db.writer(), voice_line.speaker, voice_line.text, response)
+            .finalise_response(self.data.game_db.writer(), voice_line, request, response)
             .await?;
 
         Ok(out)
@@ -313,11 +314,11 @@ impl GameQueueActor {
     async fn finalise_response(
         &self,
         tx: &impl WriteConnection,
-        voice: VoiceReference,
-        text: String,
+        voice_line_request: VoiceLineRequest,
+        backend_request: BackendTtsRequest,
         response: BackendTtsResponse,
     ) -> eyre::Result<TtsResponse> {
-        let target_dir = self.data.line_cache.lines_voice_path(&voice);
+        let target_dir = self.data.line_cache.lines_voice_path(&voice_line_request.speaker);
         tokio::fs::create_dir_all(&target_dir).await?;
 
         let (target_voice_file, file_name) = match response.result {
@@ -360,12 +361,17 @@ impl GameQueueActor {
             TtsResult::Stream => unimplemented!("Implement stream handling (still want to cache the output as well!)"),
         };
 
+        let metadata = VoicelineMetadata {
+            model_used: format!("{:?}", voice_line_request.model),
+            source_file: backend_request.voice_reference[0].name()?.into_owned(),
+        };
         let voice_line_db = db::voice_lines::ActiveModel {
             id: Default::default(),
-            dialogue_text: text.clone().into_active_value(),
-            voice_name: voice.name.clone().into_active_value(),
-            voice_location: voice.location.clone().to_string_value().into_active_value(),
+            dialogue_text: voice_line_request.text.into_active_value(),
+            voice_name: voice_line_request.speaker.name.clone().into_active_value(),
+            voice_location: voice_line_request.speaker.location.clone().to_string_value().into_active_value(),
             file_name: file_name.into_active_value(),
+            metadata: Some(metadata.to_db()).into_active_value()
         };
 
         // DB Constraint replaces line if it already exists TODO: Reap unreferenced voice files
@@ -373,8 +379,8 @@ impl GameQueueActor {
 
         Ok(TtsResponse {
             file_path: target_voice_file,
-            line: text,
-            voice_used: voice,
+            line: backend_request.gen_text,
+            voice_used: voice_line_request.speaker,
         })
     }
 

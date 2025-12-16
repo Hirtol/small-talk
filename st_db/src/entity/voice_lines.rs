@@ -18,6 +18,7 @@ pub struct Model {
     pub voice_name: String,
     pub voice_location: String,
     pub file_name: String,
+    pub metadata: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveColumn)]
@@ -27,6 +28,7 @@ pub enum Column {
     VoiceName,
     VoiceLocation,
     FileName,
+    Metadata,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DerivePrimaryKey)]
@@ -53,6 +55,7 @@ impl ColumnTrait for Column {
             Self::VoiceName => ColumnType::Text.def(),
             Self::VoiceLocation => ColumnType::Text.def(),
             Self::FileName => ColumnType::Text.def(),
+            Self::Metadata => ColumnType::Json.def().null(),
         }
     }
 }

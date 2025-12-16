@@ -56,7 +56,13 @@ pub struct RegenerateFilters {
     dialogue_pattern: Option<String>,
     /// SQLite ID voice_line id which marks the end of eligible regenerations.
     #[clap(long)]
-    id_cutoff: Option<usize>,
+    max_id: Option<usize>,
+    /// SQLite ID voice_line id which marks the start of eligible regenerations.
+    #[clap(long)]
+    min_id: Option<usize>,
+    /// Voices to exclude from any other applicable patterns
+    #[clap(long)]
+    exclude_voice: Option<Vec<String>>,
     /// SQLite LIKE pattern for file name (e.g. "%.wav")
     #[clap(long)]
     file_pattern: Option<String>,
@@ -162,8 +168,16 @@ impl RegenerateCommand {
             condition = condition.add(db::voice_lines::Column::FileName.like(pattern));
         }
 
-        if let Some(cutoff) = &filters.id_cutoff {
+        if let Some(exclude_voices) = &filters.exclude_voice {
+            condition = condition.add(db::voice_lines::Column::VoiceName.is_not_in(exclude_voices))
+        }
+
+        if let Some(cutoff) = &filters.max_id {
             condition = condition.add(db::voice_lines::Column::Id.lt(*cutoff as u64))
+        }
+
+        if let Some(cutoff) = &filters.min_id {
+            condition = condition.add(db::voice_lines::Column::Id.gte(*cutoff as u64))
         }
 
         let results: Vec<(String, String, String)> = db::voice_lines::Entity::find()

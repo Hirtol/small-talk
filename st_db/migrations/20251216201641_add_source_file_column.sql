@@ -1,0 +1,1 @@
+ALTER TABLE voice_lines ADD COLUMN metadata json_text DEFAULT NULL

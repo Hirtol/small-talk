@@ -53,6 +53,7 @@ pub mod db;
 pub mod linecache;
 mod order_channel;
 mod queue_actor;
+mod metadata;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {

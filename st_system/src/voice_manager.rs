@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use itertools::Itertools;
 use st_ml::emotion_classifier::BasicEmotion;
@@ -265,6 +266,11 @@ impl FsVoiceSample {
     /// Read the sample's data
     pub async fn data(&self) -> eyre::Result<Vec<u8>> {
         Ok(tokio::fs::read(&self.sample).await?)
+    }
+
+    /// Get the name of this sample
+    pub fn name(&self) -> eyre::Result<Cow<'_, str>> {
+        Ok(self.sample.file_name().ok_or_else(|| eyre::eyre!("no filename"))?.to_string_lossy())
     }
     
     /// If the sample has spoken text, recall what it was.
