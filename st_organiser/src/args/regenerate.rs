@@ -5,15 +5,14 @@ use sea_orm::{
     SelectColumns,
     Statement,
 };
-use tracing::Span;
-use tracing_indicatif::span_ext::IndicatifSpanExt;
-use tracing_indicatif::style::ProgressStyle;
 use st_http::config::SharedConfig;
 use st_system::{
     session::{db, db::SessionDb, GameSessionHandle}, voice_manager::VoiceReference, PostProcessing, RvcModel, RvcOptions, TtsSystem,
     TtsVoice,
     VoiceLine,
 };
+use tracing::Span;
+use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
 
 #[derive(clap::Args, Debug)]
 pub struct RegenerateCommand {
@@ -96,7 +95,13 @@ impl RegenerateCommand {
         let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
 
         // Get all voice lines matching patterns
-        let lines = Self::find_matching_lines(game_sess.session_db(), voice.voice, voice.voice_location, voice.patterns).await?;
+        let lines = Self::find_matching_lines(
+            game_sess.session_db(),
+            voice.voice,
+            voice.voice_location,
+            voice.patterns,
+        )
+        .await?;
 
         tracing::info!(todo = lines.len(), "Regenerating lines across all matching voices");
 
@@ -109,7 +114,9 @@ impl RegenerateCommand {
         lines: Vec<(String, VoiceReference)>,
     ) -> eyre::Result<()> {
         let process_span = tracing::info_span!("process_line_request");
-        process_span.pb_set_style(&ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg} ETA {eta_precise}")?);
+        process_span.pb_set_style(&ProgressStyle::with_template(
+            "{wide_bar} {pos}/{len} {msg} ETA {eta_precise}",
+        )?);
         process_span.pb_set_length(lines.len() as u64);
         process_span.pb_set_message("Processing lines");
         let _guard = process_span.enter();
@@ -154,10 +161,16 @@ impl RegenerateCommand {
     ) -> eyre::Result<Vec<(String, VoiceReference)>> {
         let mut condition = sea_orm::Condition::all();
 
-        if let (Some(voices), Some(voice_location)) = (voices, voice_location) {
-            condition = condition
-                .add(db::voice_lines::Column::VoiceName.is_in(voices))
-                .add(db::voice_lines::Column::VoiceLocation.eq(voice_location));
+        if let Some(voices) = voices {
+            condition = condition.and(db::voice_lines::Column::VoiceName.is_in(voices));
+        }
+
+        if let Some(location) = voice_location {
+            condition = condition.and(db::voice_lines::Column::VoiceLocation.is_in(location));
+        }
+
+        if let Some(exclude_voices) = &filters.exclude_voice {
+            condition = condition.add(db::voice_lines::Column::VoiceName.is_not_in(exclude_voices))
         }
 
         if let Some(pattern) = &filters.dialogue_pattern {
@@ -166,10 +179,6 @@ impl RegenerateCommand {
 
         if let Some(pattern) = &filters.file_pattern {
             condition = condition.add(db::voice_lines::Column::FileName.like(pattern));
-        }
-
-        if let Some(exclude_voices) = &filters.exclude_voice {
-            condition = condition.add(db::voice_lines::Column::VoiceName.is_not_in(exclude_voices))
         }
 
         if let Some(cutoff) = &filters.max_id {

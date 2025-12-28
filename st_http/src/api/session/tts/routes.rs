@@ -13,6 +13,7 @@ use axum::extract::{Path, State};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::VecDeque;
+use eyre::OptionExt;
 use st_system::audio::playback::{PlaybackSettings, PlaybackVoiceLine};
 
 pub fn config() -> ApiRouter<AppState> {
@@ -25,6 +26,7 @@ pub fn config() -> ApiRouter<AppState> {
                 "/playback",
                 ApiRouter::new()
                     .api_route("/start", post_with(tts_playback_start, tts_playback_start_request_docs))
+                    .api_route("/speed", post_with(tts_set_speed, tts_set_speed_request_docs))
                     .api_route("/stop", post_with(tts_playback_stop, tts_playback_stop_request_docs)),
             ),
     )
@@ -111,6 +113,29 @@ pub async fn tts_playback_start(
 
 fn tts_playback_start_request_docs(op: TransformOperation) -> TransformOperation {
     op.description("Start a local playback of the given voice-line. This will return immediately, even if the voiceline hasn't finished playing yet.")
+        .response::<200, ()>()
+}
+
+
+#[tracing::instrument(skip_all)]
+pub async fn tts_set_speed(
+    state: State<AppState>,
+    Path(game_name): Path<Session>,
+    Json(new_speed): Json<PlaybackSettings>,
+) -> ApiResult<()> {
+    let session_handle = state.system.get_or_start_session(&game_name.id).await?;
+    session_handle
+        .playback
+        .set_speed(
+            new_speed.speed.ok_or_eyre("No speed defined")?,
+        )
+        .await?;
+
+    Ok(())
+}
+
+fn tts_set_speed_request_docs(op: TransformOperation) -> TransformOperation {
+    op.description("Set the speed of an already ongoing playback.")
         .response::<200, ()>()
 }
 

@@ -8,7 +8,7 @@ use crate::{
     TtsResponse,
     VoiceLine,
 };
-use eyre::ContextCompat;
+use eyre::{ContextCompat, OptionExt};
 use futures::{future::BoxFuture, FutureExt};
 use kira::{
     effect::{
@@ -44,14 +44,11 @@ impl PlaybackEngineHandle {
 
         let engine = PlaybackEngine {
             audio_manager,
-            current_track: None,
             session_handle: session,
             recv,
-            current_request: None,
-            current_settings: None,
             current_queue: Default::default(),
-            current_sound: None,
             scale_tempo: create_scale_tempo(44_100),
+            state: PlaybackEngineState::Idle,
         };
         let rt = tokio::runtime::Handle::current();
         // We do blocking IO in the actor, so spawn it on the thread pool.
@@ -79,6 +76,11 @@ impl PlaybackEngineHandle {
         Ok(self.send.send(PlaybackMessage::Start(lines)).await?)
     }
 
+    /// Set the speed of playback for an ongoing playback.
+    pub async fn set_speed(&self, new_speed: f64) -> eyre::Result<()> {
+        Ok(self.send.send(PlaybackMessage::ChangeSpeed(new_speed)).await?)
+    }
+
     /// Stop the current [VoiceLine] from playing.
     ///
     /// If the engine was waiting for a different line to be completed then it will simply discard that initial request and wait for the new line instead.
@@ -99,6 +101,7 @@ pub struct PlaybackVoiceLine {
 pub enum PlaybackMessage {
     Stop,
     Start(VecDeque<PlaybackVoiceLine>),
+    ChangeSpeed(f64),
 }
 
 pub struct PlaybackEngine {
@@ -108,21 +111,23 @@ pub struct PlaybackEngine {
 
     scale_tempo: ScaleTempo,
     audio_manager: AudioManager<DefaultBackend>,
-    current_track: Option<TrackHandle>,
-    current_sound: Option<StaticSoundHandle>,
-    current_settings: Option<PlaybackSettings>,
+    state: PlaybackEngineState,
 
     current_queue: VecDeque<PlaybackVoiceLine>,
-    current_request: Option<tokio::sync::oneshot::Receiver<Arc<TtsResponse>>>,
 }
 
 impl PlaybackEngine {
-    #[tracing::instrument(name="run_playback", skip(self))]
+    #[tracing::instrument(name = "run_playback", skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         // There is no callback/future we can use to detect a finished line, so we'll just have to poll it.
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
-            let one_shot_future: futures::future::OptionFuture<_> = self.current_request.as_mut().into();
+            let one_shot_future: futures::future::OptionFuture<_> = match &mut self.state {
+                PlaybackEngineState::Waiting(state) => Some(&mut state.current_request),
+                _ => None,
+            }
+            .into();
+
             tokio::select! {
                 msg = self.recv.recv() => {
                     let Some(msg) = msg else {
@@ -150,18 +155,12 @@ impl PlaybackEngine {
     async fn handle_message(&mut self, message: PlaybackMessage) -> eyre::Result<()> {
         match message {
             PlaybackMessage::Stop => {
-                self.current_request = None;
-                self.current_track = None;
-                self.current_sound = None;
-                self.current_settings = None;
+                self.state = PlaybackEngineState::Idle;
                 self.current_queue.clear();
             }
             PlaybackMessage::Start(lines) => {
                 // If we start a new line set we first clear out the old one
-                self.current_request = None;
-                self.current_track = None;
-                self.current_sound = None;
-                self.current_settings = None;
+                self.state = PlaybackEngineState::Idle;
                 self.current_queue = lines;
                 let session = self.session()?;
 
@@ -180,6 +179,9 @@ impl PlaybackEngine {
                         .for_each(|l| l.line.force_generate = false);
                 }
             }
+            PlaybackMessage::ChangeSpeed(new_speed) => {
+                self.set_speed(new_speed)?;
+            }
         }
         Ok(())
     }
@@ -189,39 +191,72 @@ impl PlaybackEngine {
         let Ok(mut file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
-            self.current_request = None;
-            self.current_sound = None;
+            self.state = PlaybackEngineState::Idle;
             return Ok(());
         };
 
-        // Handle speed changes. Can't set it as an effect
-        if let Some(speed) = self.current_settings.as_ref().and_then(|s| s.speed)
-            && speed != 1.0
-        {
-            if self.scale_tempo.sample_rate != file.sample_rate {
-                self.scale_tempo = create_scale_tempo(file.sample_rate);
+        let current_state = self
+            .state
+            .take_waiting()
+            .ok_or_eyre("Unexpected state machine state, bailing")?;
+        let speed_sound_data = process_speed_change_data(
+            &mut self.scale_tempo,
+            file.clone(),
+            current_state.current_settings.speed.unwrap_or(1.0),
+        );
+
+        let mut track = self
+            .audio_manager
+            .add_sub_track(current_state.current_settings.construct_track())?;
+        let volume = current_state.current_settings.volume.unwrap_or(1.0).max(0.0).min(1.0);
+        let volume_db = Decibels(20.0 * volume.log10());
+
+        track.set_volume(volume_db, Tween::default());
+
+        let new_state = PlaybackEnginePlayingState {
+            current_sound: track.play(speed_sound_data)?,
+            current_track: track,
+            current_sound_data: file,
+            current_settings: current_state.current_settings,
+        };
+        self.state = PlaybackEngineState::Playing(new_state);
+        Ok(())
+    }
+
+    fn set_speed(&mut self, new_speed: f64) -> eyre::Result<()> {
+        match &mut self.state {
+            PlaybackEngineState::Idle => {}
+            PlaybackEngineState::Waiting(state) => {
+                state.current_settings.speed = Some(new_speed);
             }
+            PlaybackEngineState::Playing(state) => {
+                let current_sound_handle = &mut state.current_sound;
+                current_sound_handle.stop(Tween::default());
+                let current_position = current_sound_handle.position();
 
-            let new_samples = self
-                .scale_tempo
-                .process(RefInterlacedSamples(&file.frames).as_ref(), speed);
-            file.frames = super::scale_tempo::to_kira_frames(new_samples);
-            file.slice = None;
+                let new_sound_data =
+                    process_speed_change_data(&mut self.scale_tempo, state.current_sound_data.clone(), new_speed);
+                let mut new_sound_handle = state.current_track.play(new_sound_data)?;
+
+                let current_speed = state.current_settings.speed.unwrap_or(1.0);
+                let position_divider = new_speed / current_speed;
+                let new_position = current_position / position_divider;
+                new_sound_handle.seek_to(new_position);
+
+                state.current_sound = new_sound_handle;
+                state.current_settings.speed = Some(new_speed);
+            }
         }
-
-        self.current_request = None;
-        let mut track = self.current_track.as_mut().expect("Invariant violation");
-        self.current_sound = Some(track.play(file)?);
         Ok(())
     }
 
     async fn handle_queue_tick(&mut self) -> eyre::Result<()> {
-        let has_stopped = self
-            .current_sound
-            .as_ref()
-            .map(|s| s.state() == PlaybackState::Stopped)
-            .unwrap_or_default();
-        if has_stopped && self.current_request.is_none() {
+        let has_stopped = match &self.state {
+            PlaybackEngineState::Playing(state) => state.current_sound.state() == PlaybackState::Stopped,
+            _ => false,
+        };
+
+        if has_stopped && !matches!(self.state, PlaybackEngineState::Waiting(_)) {
             if let Some(request) = self.current_queue.pop_front() {
                 self.start_playback_request(request, self.session()?).await?;
             }
@@ -233,23 +268,18 @@ impl PlaybackEngine {
     #[tracing::instrument(skip_all)]
     async fn start_playback_request(&mut self, request: PlaybackVoiceLine, session: Arc<GameTts>) -> eyre::Result<()> {
         let (snd, rcv) = tokio::sync::oneshot::channel();
-        let playback_s = request.playback.unwrap_or_default();
-        let mut track = self.audio_manager.add_sub_track(playback_s.construct_track())?;
-        let volume = playback_s.volume.unwrap_or(1.0).max(0.0).min(1.0);
-        let volume_db = Decibels(20.0 * volume.log10());
-
-        track.set_volume(volume_db, Tween::default());
-
-        self.current_sound = None;
-        self.current_track = Some(track);
-        self.current_settings = Some(playback_s);
 
         tokio::task::spawn(async move {
             if let Err(e) = session.request_tts_with_channel(request.line, snd).await {
                 tracing::error!(?e, "Failed to request TTS for playback");
             }
         });
-        self.current_request = Some(rcv);
+
+        let new_state = PlaybackEngineWaitingState {
+            current_settings: request.playback.unwrap_or_default(),
+            current_request: rcv,
+        };
+        self.state = PlaybackEngineState::Waiting(new_state);
 
         Ok(())
     }
@@ -259,6 +289,61 @@ impl PlaybackEngine {
             .upgrade()
             .context("Parent session is no longer available")
     }
+}
+
+/// Speed up the given `data` while preserving pitch.
+fn process_speed_change_data(scale_tempo: &mut ScaleTempo, mut data: StaticSoundData, speed: f64) -> StaticSoundData {
+    if scale_tempo.sample_rate != data.sample_rate {
+        *scale_tempo = create_scale_tempo(data.sample_rate);
+    }
+
+    if speed != 1.0 {
+        let new_samples = scale_tempo.process(RefInterlacedSamples(&data.frames).as_ref(), speed);
+
+        data.frames = super::scale_tempo::to_kira_frames(new_samples);
+        data.slice = None;
+        data
+    } else {
+        data
+    }
+}
+
+#[derive(Debug)]
+enum PlaybackEngineState {
+    Idle,
+    Waiting(PlaybackEngineWaitingState),
+    Playing(PlaybackEnginePlayingState),
+}
+
+impl PlaybackEngineState {
+    pub fn take_waiting(&mut self) -> Option<PlaybackEngineWaitingState> {
+        match self {
+            PlaybackEngineState::Waiting(_) => {
+                let old_state = std::mem::replace(self, PlaybackEngineState::Idle);
+
+                match old_state {
+                    PlaybackEngineState::Waiting(state) => Some(state),
+                    _ => unreachable!(),
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PlaybackEngineWaitingState {
+    current_settings: PlaybackSettings,
+
+    current_request: tokio::sync::oneshot::Receiver<Arc<TtsResponse>>,
+}
+
+#[derive(Debug)]
+struct PlaybackEnginePlayingState {
+    current_track: TrackHandle,
+    current_sound: StaticSoundHandle,
+    current_sound_data: StaticSoundData,
+    current_settings: PlaybackSettings,
 }
 
 /// The environment which we should simulate through reverb/filters
@@ -294,6 +379,7 @@ impl PlaybackSettings {
     /// Applies:
     /// * Low-pass filter at `16_000` HZ
     /// * Optional Reverb based on environment
+    /// * High-pass filter for outdoors environment simulation
     fn construct_track(&self) -> TrackBuilder {
         let mut builder = TrackBuilder::new();
         builder.add_effect(FilterBuilder::new().mode(FilterMode::LowPass).cutoff(16_000.));
