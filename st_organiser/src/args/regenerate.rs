@@ -162,11 +162,11 @@ impl RegenerateCommand {
         let mut condition = sea_orm::Condition::all();
 
         if let Some(voices) = voices {
-            condition = condition.and(db::voice_lines::Column::VoiceName.is_in(voices));
+            condition = condition.add(db::voice_lines::Column::VoiceName.is_in(voices));
         }
 
         if let Some(location) = voice_location {
-            condition = condition.and(db::voice_lines::Column::VoiceLocation.is_in(location));
+            condition = condition.add(db::voice_lines::Column::VoiceLocation.eq(&location));
         }
 
         if let Some(exclude_voices) = &filters.exclude_voice {
