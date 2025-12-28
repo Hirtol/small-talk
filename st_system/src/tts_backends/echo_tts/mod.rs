@@ -156,8 +156,7 @@ impl EchoTtsActor {
                 }
 
                 let took = now.elapsed();
-                let mut stitched = crate::audio::stitching::stitch_with_gaps(all_chunks.into_iter(), Duration::from_millis(100))?;
-                stitched.lowpass_filter(10500.);
+                let stitched = crate::audio::stitching::stitch_with_gaps(all_chunks.into_iter(), Duration::from_millis(100))?;
 
                 let _ = response.send(BackendTtsResponse {
                     gen_time: took,
