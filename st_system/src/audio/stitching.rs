@@ -147,27 +147,3 @@ pub fn resample_audio(a: &AudioData, target_rate: u32) -> AudioData {
 
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::audio::{stitching::stitch_with_gaps, AudioData};
-    use std::{path::Path, time::Duration};
-    use wavers::Wav;
-
-    #[test]
-    fn test_crossfade() -> eyre::Result<()> {
-        let first = r#"C:\Users\Valentijn\Downloads\download.wav"#;
-        let second = r#"C:\Users\Valentijn\Downloads\download2.wav"#;
-        let mut first = Wav::<f32>::from_path(first)?;
-        let mut sec = Wav::<f32>::from_path(second)?;
-
-        let first_audio = AudioData::new(&mut first)?;
-        let sec_audio = AudioData::new(&mut sec)?;
-
-        let merged_gap = stitch_with_gaps([first_audio, sec_audio].into_iter(), Duration::from_millis(300))?;
-
-        merged_gap.write_to_wav_file(Path::new("merged_gap.wav"))?;
-
-        Ok(())
-    }
-}
