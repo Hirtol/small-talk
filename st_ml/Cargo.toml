@@ -37,3 +37,11 @@ wavers.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true
+
+# TTS dependencies
+#ort = { version = "2.0.0", features = ["cuda"] }  # ONNX runtime with CUDA support
+#hf-hub = "0.3.0"  # HuggingFace model hub
+#symphonia = { version = "0.5.4", features = ["mp3", "aac", "wav"] }  # Audio loading
+#rubato = "0.14.0"  # Audio resampling
+#clap = { version = "4.5.4", features = ["derive"] }  # CLI argument parsing
+#anyhow = "1.0.86"   # Error handling
