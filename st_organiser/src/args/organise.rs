@@ -16,7 +16,7 @@ use std::{
     io::BufReader,
     path::PathBuf,
 };
-use st_system::voice_manager::{VoiceDestination, VoiceManager, VoiceSample};
+use st_system::voice_manager::{VoiceLocation, VoiceManager, VoiceSample};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {
@@ -36,9 +36,9 @@ impl OrganiseCommand {
         let mut voice_man = VoiceManager::new(config.dirs.clone());
 
         let destination = if self.destination == "global" {
-            VoiceDestination::Global
+            VoiceLocation::Global
         } else {
-            VoiceDestination::Game(self.destination)
+            VoiceLocation::Game(self.destination)
         };
         let mut queue: HashMap<String, Vec<PathBuf>> = HashMap::new();
 

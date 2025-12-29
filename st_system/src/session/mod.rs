@@ -6,7 +6,7 @@ use crate::{
         queue_actor::VoiceLineRequest,
     },
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
-    voice_manager::{FsVoiceData, VoiceDestination, VoiceManager, VoiceReference},
+    voice_manager::{FsVoiceData, VoiceLocation, VoiceManager, VoiceReference},
     CharacterName,
     CharacterVoice,
     Gender,

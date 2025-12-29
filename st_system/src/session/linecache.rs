@@ -9,7 +9,7 @@ use crate::config::TtsSystemConfig;
 use crate::session::db;
 use crate::session::db::SessionDb;
 use crate::TtsResponse;
-use crate::voice_manager::{VoiceDestination, VoiceReference};
+use crate::voice_manager::{VoiceLocation, VoiceReference};
 use sea_orm::QueryFilter;
 
 #[derive(Debug)]

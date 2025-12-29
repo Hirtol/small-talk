@@ -17,16 +17,22 @@ pub struct StSystemFfi {
     pub system: Arc<TtsSystem>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime="tokio")]
 impl StSystemFfi {
     pub async fn start_game_session(&self, game_name: String) -> crate::Result<StGameSessionFfi> {
+        tracing::info!("Starting start_game_session");
         let game_sess = self.system.get_or_start_session(&game_name).await?;
+        tracing::info!("Finishing start_game_session");
         Ok(
             StGameSessionFfi {
                 system: self.clone(),
                 handle: game_sess,
             }
         )
+    }
+
+    pub async fn shutdown(&self) -> crate::Result<()> {
+        Ok(self.system.shutdown().await?)
     }
 }
 

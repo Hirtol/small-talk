@@ -14,7 +14,7 @@ use st_system::tts_backends::TtsCoordinator;
 use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsSystem, TtsVoice, VoiceLine};
 use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
-use st_system::voice_manager::{VoiceDestination, VoiceManager, VoiceReference};
+use st_system::voice_manager::{VoiceLocation, VoiceManager, VoiceReference};
 use crate::args::ClapTtsModel;
 
 #[derive(clap::Args, Debug)]

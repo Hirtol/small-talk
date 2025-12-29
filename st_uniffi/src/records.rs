@@ -3,7 +3,7 @@ use std::path::PathBuf;
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct VoiceReference {
     pub name: String,
-    pub location: VoiceDestination,
+    pub location: VoiceLocation,
 }
 
 impl From<st_system::voice_manager::VoiceReference> for VoiceReference {
@@ -25,25 +25,25 @@ impl From<VoiceReference> for st_system::voice_manager::VoiceReference {
 }
 
 #[derive(uniffi::Enum, Clone, Debug)]
-pub enum VoiceDestination {
+pub enum VoiceLocation {
     Global,
     Game { name: String },
 }
 
-impl From<st_system::voice_manager::VoiceDestination> for VoiceDestination {
-    fn from(value: st_system::voice_manager::VoiceDestination) -> Self {
+impl From<st_system::voice_manager::VoiceLocation> for VoiceLocation {
+    fn from(value: st_system::voice_manager::VoiceLocation) -> Self {
         match value {
-            st_system::voice_manager::VoiceDestination::Global => Self::Global,
-            st_system::voice_manager::VoiceDestination::Game(game) => Self::Game { name: game },
+            st_system::voice_manager::VoiceLocation::Global => Self::Global,
+            st_system::voice_manager::VoiceLocation::Game(game) => Self::Game { name: game },
         }
     }
 }
 
-impl From<VoiceDestination> for st_system::voice_manager::VoiceDestination {
-    fn from(value: VoiceDestination) -> Self {
+impl From<VoiceLocation> for st_system::voice_manager::VoiceLocation {
+    fn from(value: VoiceLocation) -> Self {
         match value {
-            VoiceDestination::Global => st_system::voice_manager::VoiceDestination::Global,
-            VoiceDestination::Game { name } => st_system::voice_manager::VoiceDestination::Game(name)
+            VoiceLocation::Global => st_system::voice_manager::VoiceLocation::Global,
+            VoiceLocation::Game { name } => st_system::voice_manager::VoiceLocation::Game(name)
         }
     }
 }

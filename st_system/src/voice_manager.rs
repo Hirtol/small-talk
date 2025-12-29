@@ -64,7 +64,7 @@ impl VoiceManager {
             .map(|d| FsVoiceData {
                 reference: VoiceReference {
                     name: d.file_name().to_string_lossy().into_owned(),
-                    location: VoiceDestination::Game(game_name.into()),
+                    location: VoiceLocation::Game(game_name.into()),
                 },
                 dir: d.into_path(),
             })
@@ -81,7 +81,7 @@ impl VoiceManager {
             .map(|d| FsVoiceData {
                 reference: VoiceReference {
                     name: d.file_name().to_string_lossy().into_owned(),
-                    location: VoiceDestination::Global,
+                    location: VoiceLocation::Global,
                 },
                 dir: d.into_path(),
             })
@@ -92,7 +92,7 @@ impl VoiceManager {
     /// 
     /// Renames the sample to the expected name representing the emotion embedded in the sample.
     /// This is later used for sample collection.
-    pub fn store_voice_samples(&mut self, dest: VoiceDestination, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
+    pub fn store_voice_samples(&mut self, dest: VoiceLocation, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
         let destination = dest.to_path(&self.conf).join(voice_name);
         std::fs::create_dir_all(&destination)?;
         
@@ -126,28 +126,28 @@ impl VoiceManager {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct VoiceReference {
     pub name: Voice,
-    pub location: VoiceDestination,
+    pub location: VoiceLocation,
 }
 
 impl VoiceReference {
     pub fn from_strings(name: Voice, location: String) -> VoiceReference {
         Self {
             name,
-            location: VoiceDestination::from(location),
+            location: VoiceLocation::from(location),
         }
     }
 
     pub fn global(name: impl Into<Voice>) -> VoiceReference {
         VoiceReference {
             name: name.into(),
-            location: VoiceDestination::Global,
+            location: VoiceLocation::Global,
         }
     }
     
     pub fn game(name: impl Into<Voice>, game_name: impl Into<String>) -> VoiceReference {
         VoiceReference {
             name: name.into(),
-            location: VoiceDestination::Game(game_name.into()),
+            location: VoiceLocation::Game(game_name.into()),
         }
     }
 }
@@ -171,32 +171,32 @@ impl From<db::characters::Model> for VoiceReference {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum VoiceDestination {
+pub enum VoiceLocation {
     Global,
     Game(String)
 }
 
-impl VoiceDestination {
+impl VoiceLocation {
     pub fn to_string_value(&self) -> String {
         match self {
-            VoiceDestination::Global => "global".into(),
-            VoiceDestination::Game(game_val) => game_val.clone()
+            VoiceLocation::Global => "global".into(),
+            VoiceLocation::Game(game_val) => game_val.clone()
         }
     }
 
     pub fn to_path(&self, conf: &TtsSystemConfig) -> PathBuf {
         match self {
-            VoiceDestination::Global => {
+            VoiceLocation::Global => {
                 conf.global_voice()
             },
-            VoiceDestination::Game(game_name) => {
+            VoiceLocation::Game(game_name) => {
                 conf.game_voice(game_name)
             }
         }
     }
 }
 
-impl From<String> for VoiceDestination {
+impl From<String> for VoiceLocation {
     fn from(value: String) -> Self {
         if value == "global" || value == "Global" {
             Self::Global

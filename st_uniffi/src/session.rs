@@ -11,7 +11,7 @@ pub struct StGameSessionFfi {
     pub handle: GameSessionHandle,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime="tokio")]
 impl StGameSessionFfi {
     pub async fn available_voices(&self) -> crate::Result<Vec<VoiceReference>> {
         Ok(self
