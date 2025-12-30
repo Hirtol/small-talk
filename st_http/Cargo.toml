@@ -53,6 +53,7 @@ toml = "0.8"
 st_system = {path = "../st_system"}
 st_data = { path = "../st_data" }
 st_audio = { path = "../st_audio" }
+st_ml = { path = "../st_ml" }
 
 [dev-dependencies]
 tracing-test = "0.2.5"

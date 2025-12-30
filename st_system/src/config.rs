@@ -7,7 +7,7 @@ pub struct TtsSystemConfig {
     /// Directory storing all game data, including global voices and game specific data.
     pub appdata_dir: PathBuf,
     /// Path to the Whisper model. Should be a valid GGUF/GGML model.
-    pub whisper_model: PathBuf,
+    pub whisper_model: Option<PathBuf>,
     /// Path to the emotion classifier model
     pub emotion_classifier_model: PathBuf,
     /// Path to the BERT-based model providing text embeddings.
@@ -22,7 +22,7 @@ impl Default for TtsSystemConfig {
         let appdata_dir = app_dir.join("appdata");
         let models_dir = appdata_dir.join("../../models");
         Self {
-            whisper_model: models_dir.join("whisper").join("ggml-medium-q5_0.bin"),
+            whisper_model: None,
             emotion_classifier_model: models_dir.join("text_emotion_classifier").join("classifier_head"),
             bert_embeddings_model: models_dir.join("text_emotion_classifier").join("ggml-model-Q4_k.gguf"),
             appdata_dir,

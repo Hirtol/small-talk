@@ -32,8 +32,10 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, services::ServeFile, trace::TraceLayer};
+use st_ml::stt::WhisperTranscribe;
 use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
 
@@ -79,7 +81,14 @@ impl Application {
             .map(|cfg| EchoTtsHandle::new(cfg.clone()))
             .transpose()?;
 
-        let tts_backend = TtsCoordinator::new(xtts, index, echo, config.dirs.whisper_model.clone());
+        let whisper = if let Some(whisper_path) = config.dirs.whisper_model.clone() {
+            let cpu_threads = std::thread::available_parallelism()?.get() / 2;
+            Some(Arc::new(Mutex::new(WhisperTranscribe::new(whisper_path, cpu_threads as u16)?)))
+        } else {
+            None
+        };
+
+        let tts_backend = TtsCoordinator::new(xtts, index, echo, whisper);
 
         let mut seedvc_cfg = config.seed_vc.if_enabled().map(|seed_vc| LocalSeedVcConfig {
             instance_path: seed_vc.local_path.clone(),

@@ -8339,6 +8339,7 @@ dependencies = [
  "serde_json",
  "st_audio",
  "st_data",
+ "st_ml",
  "st_system",
  "tokio",
  "toml 0.8.20",

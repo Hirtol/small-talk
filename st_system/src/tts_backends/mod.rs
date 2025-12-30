@@ -1,23 +1,21 @@
 use crate::{
-    error::TtsError,
-    timeout::DroppableState,
-    tts_backends::alltalk::local::LocalAllTalkHandle,
+    error::TtsError, timeout::DroppableState, tts_backends::alltalk::local::LocalAllTalkHandle,
     voice_manager::FsVoiceSample,
 };
-use eyre::Context;
-use st_ml::stt::WhisperTranscribe;
-use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::Mutex;
 use echo_tts::EchoTtsHandle;
+use eyre::Context;
 use indextts::IndexTtsHandle;
 use st_audio::AudioData;
 use st_data::TtsModel;
-pub mod docker_backend;
+use st_ml::stt::WhisperTranscribe;
+use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 pub mod alltalk;
-pub mod echo_tts;
-pub mod indextts;
 pub mod chunking;
+pub mod docker_backend;
+pub mod echo_tts;
 pub mod generic_backend;
+pub mod indextts;
 
 pub type Result<T> = std::result::Result<T, TtsError>;
 
@@ -27,8 +25,7 @@ pub struct TtsCoordinator {
     pub xtts: Option<LocalAllTalkHandle>,
     pub index_tts: Option<IndexTtsHandle>,
     pub echo_tts: Option<EchoTtsHandle>,
-    whisper: Arc<Mutex<Option<WhisperTranscribe>>>,
-    whisper_path: PathBuf,
+    pub whisper: Option<Arc<Mutex<WhisperTranscribe>>>,
 }
 
 impl TtsCoordinator {
@@ -39,14 +36,13 @@ impl TtsCoordinator {
         xtts_all_talk: Option<LocalAllTalkHandle>,
         index_tts: Option<IndexTtsHandle>,
         echo_tts: Option<EchoTtsHandle>,
-        whisper_path: PathBuf,
+        whisper: Option<Arc<Mutex<WhisperTranscribe>>>,
     ) -> Self {
         Self {
             xtts: xtts_all_talk,
             index_tts,
             echo_tts,
-            whisper: Arc::new(Mutex::new(None)),
-            whisper_path,
+            whisper,
         }
     }
 
@@ -98,25 +94,19 @@ impl TtsCoordinator {
     ///
     /// A score in the range [0..1], where a higher score is a closer match.
     pub async fn verify_prompt(&self, audio_data: AudioData, original_prompt: &str) -> Result<f32> {
-        let whisp_clone = self.whisper.clone();
-        let whisp_path = self.whisper_path.clone();
+        let whisp_clone = self
+            .whisper
+            .clone()
+            .ok_or_else(|| eyre::eyre!("Whisper is disabled in the config, can't verify"))?;
 
         let output = tokio::task::spawn_blocking(move || {
             let mut whisp = whisp_clone.blocking_lock();
 
-            match whisp.deref_mut() {
-                None => {
-                    let cpu_threads = std::thread::available_parallelism()?.get() / 2;
-                    let mut model = WhisperTranscribe::new(whisp_path, cpu_threads as u16)?;
-                    let output = model.infer(&audio_data.samples, audio_data.n_channels, audio_data.sample_rate);
-                    *whisp = Some(model);
-                    output
-                }
-                Some(model) => model.infer(&audio_data.samples, audio_data.n_channels, audio_data.sample_rate),
-            }
+            whisp.infer(&audio_data.samples, audio_data.n_channels, audio_data.sample_rate)
         })
         .await
         .map_err(|e| eyre::eyre!(e))??;
+
         // Can cause problems if we don't remove these for short quotes.
         let original_without_quotes = original_prompt.trim_start_matches('"').trim_end_matches('"');
         let leven = strsim::levenshtein(&output, original_without_quotes);
