@@ -4,7 +4,7 @@ use std::{
     process::Stdio,
 };
 use std::time::Duration;
-use process_wrap::tokio::TokioChildWrapper;
+use process_wrap::tokio::ChildWrapper;
 use tokio::{
     process::{Child, Command},
 };
@@ -83,7 +83,7 @@ struct LocalSeedVc {
 
 struct TemporaryState {
     rvc: SeedRvc,
-    process: Box<dyn TokioChildWrapper>,
+    process: Box<dyn ChildWrapper>,
     last_access: std::time::Instant,
 }
 
@@ -162,7 +162,7 @@ impl DroppableState for TemporaryState {
 
     async fn initialise_state(context: &Self::Context) -> eyre::Result<Self> {
         #[tracing::instrument]
-        async fn start_seedvc(path: &Path, high_quality: bool) -> eyre::Result<Box<dyn TokioChildWrapper>> {
+        async fn start_seedvc(path: &Path, high_quality: bool) -> eyre::Result<Box<dyn ChildWrapper>> {
             tracing::debug!("Attempting to start SeedVc process");
             let seed_env = path.join(".venv").join("Scripts");
             let python_exe = seed_env.join("python.exe");
@@ -184,7 +184,7 @@ impl DroppableState for TemporaryState {
                 cmd.args(["--diffusion-steps", "25", "--inference-cfg-rate", "0.7"]);
             }
 
-            let mut wrapped = process_wrap::tokio::TokioCommandWrap::from(cmd);
+            let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
             wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
             #[cfg(unix)]

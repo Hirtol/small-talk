@@ -10,7 +10,7 @@ mod trace;
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let args = args::ClapArgs::parse();
-    let conf = Arc::new(st_http::config::initialise_config()?);
+    let conf = Arc::new(st_application::config::initialise_config()?);
     trace::create_subscriber("ERROR,st_http=TRACE,st_organiser=TRACE,st_ml=TRACE,st_system=TRACE").init();
 
     let now = std::time::Instant::now();
@@ -24,9 +24,6 @@ async fn main() -> eyre::Result<()> {
         }
         SubCommands::ReassignVoice(reas) => {
             reas.run(conf).await?;
-        }
-        SubCommands::Migrate(mig) => {
-            mig.run(conf).await?;
         }
         SubCommands::RegenerateLines(re) => {
             re.run(conf).await?;

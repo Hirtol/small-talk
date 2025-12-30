@@ -14,7 +14,7 @@ use crate::tts_backends::TtsCoordinator;
 use crate::voice_manager::VoiceManager;
 
 pub use st_data::*;
-use crate::emotion::EmotionBackend;
+use crate::emotion::{EmotionBackend, EmotionCoordinator};
 
 pub mod tts_backends;
 pub mod rvc_backends;
@@ -36,11 +36,11 @@ pub struct TtsSystem {
     voice_man: Arc<VoiceManager>,
     tts: TtsCoordinator,
     rvc: RvcCoordinator,
-    emotion: EmotionBackend,
+    emotion: EmotionCoordinator,
 }
 
 impl TtsSystem {
-    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcCoordinator, emotion_backend: EmotionBackend) -> Self {
+    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcCoordinator, emotion_backend: EmotionCoordinator) -> Self {
         Self {
             emotion: emotion_backend,
             config: config.clone(),

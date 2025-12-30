@@ -1,20 +1,10 @@
 [package]
-name = "st_http"
+name = "st_application"
 version = "0.1.0"
-description = "TTS api for game voicing"
 edition.workspace = true
-
-[lib]
-doctest = false
-path = "src/lib.rs"
-
-[[bin]]
-path = "src/main.rs"
-name = "st_http"
-
-[features]
-debug = ["console-subscriber", "tokio/tracing"]
-venator = ["dep:venator"]
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
 
 [dependencies]
 color-eyre = "0.6"
@@ -50,11 +40,7 @@ platform-dirs = "0.3"
 toml = "0.8"
 
 # ML
-st_system = { path = "../st_system" }
+st_system = {path = "../st_system"}
 st_data = { path = "../st_data" }
 st_audio = { path = "../st_audio" }
 st_ml = { path = "../st_ml" }
-st_application = { path = "../st_application" }
-
-[dev-dependencies]
-tracing-test = "0.2.5"

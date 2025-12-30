@@ -1,4 +1,4 @@
-use eyre::{ContextCompat, OptionExt};
+use eyre::{OptionExt};
 use futures::{future::BoxFuture, FutureExt};
 use kira::{
     effect::{
@@ -14,12 +14,9 @@ use kira::{
 };
 use std::{
     collections::VecDeque,
-    fs::File,
-    io::BufReader,
-    sync::{Arc, Weak},
+    sync::{Arc},
     time::Duration,
 };
-use tokio::sync::broadcast;
 use st_data::{TtsResponse, VoiceLine};
 use crate::scale_tempo::{ScaleTempo, RefInterlacedSamples};
 

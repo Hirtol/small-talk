@@ -9,11 +9,11 @@ pub struct TtsSystemConfig {
     /// Path to the Whisper model. Should be a valid GGUF/GGML model.
     pub whisper_model: Option<PathBuf>,
     /// Path to the emotion classifier model
-    pub emotion_classifier_model: PathBuf,
+    pub emotion_classifier_model: Option<PathBuf>,
     /// Path to the BERT-based model providing text embeddings.
     ///
     /// Should be GGUF/GGML.
-    pub bert_embeddings_model: PathBuf,
+    pub bert_embeddings_model: Option<PathBuf>,
 }
 
 impl Default for TtsSystemConfig {
@@ -23,8 +23,8 @@ impl Default for TtsSystemConfig {
         let models_dir = appdata_dir.join("../../models");
         Self {
             whisper_model: None,
-            emotion_classifier_model: models_dir.join("text_emotion_classifier").join("classifier_head"),
-            bert_embeddings_model: models_dir.join("text_emotion_classifier").join("ggml-model-Q4_k.gguf"),
+            emotion_classifier_model: Some(models_dir.join("text_emotion_classifier").join("classifier_head")),
+            bert_embeddings_model: Some(models_dir.join("text_emotion_classifier").join("ggml-model-Q4_k.gguf")),
             appdata_dir,
         }
     }

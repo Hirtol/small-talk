@@ -209,7 +209,6 @@ impl From<RvcModel> for st_data::RvcModel {
 
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum TtsModel {
-    Xtts,
     IndexTts,
     EchoTts,
 }
@@ -217,7 +216,6 @@ pub enum TtsModel {
 impl From<st_data::TtsModel> for TtsModel {
     fn from(value: st_data::TtsModel) -> Self {
         match value {
-            st_data::TtsModel::Xtts => Self::Xtts,
             st_data::TtsModel::IndexTts => Self::IndexTts,
             st_data::TtsModel::EchoTts => Self::EchoTts,
         }
@@ -227,7 +225,6 @@ impl From<st_data::TtsModel> for TtsModel {
 impl From<TtsModel> for st_data::TtsModel {
     fn from(value: TtsModel) -> Self {
         match value {
-            TtsModel::Xtts => st_data::TtsModel::Xtts,
             TtsModel::IndexTts => Self::IndexTts,
             TtsModel::EchoTts => Self::EchoTts,
         }

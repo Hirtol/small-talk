@@ -5,14 +5,16 @@ use sea_orm::{
     SelectColumns,
     Statement,
 };
-use st_http::config::SharedConfig;
+use st_application::config::SharedConfig;
 use st_system::{
-    session::{db, db::SessionDb, GameSessionHandle}, voice_manager::VoiceReference, PostProcessing, RvcModel, RvcOptions, TtsSystem,
+    session::{db, db::SessionDb, GameSessionHandle}, PostProcessing, RvcModel, RvcOptions, TtsSystem,
     TtsVoice,
     VoiceLine,
 };
 use tracing::Span;
 use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
+use st_application::SmallTalkApplication;
+use st_data::voice::VoiceReference;
 
 #[derive(clap::Args, Debug)]
 pub struct RegenerateCommand {
@@ -78,7 +80,7 @@ impl RegenerateCommand {
 
     #[tracing::instrument(skip_all)]
     async fn handle_missing_lines(self, config: SharedConfig) -> eyre::Result<()> {
-        let tts_sys = super::reassign::create_tts_system(config)?;
+        let tts_sys = SmallTalkApplication::new(&config).await?.tts_system;
         let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
 
         let missing = Self::find_all_missing_voicelines(game_sess.session_db()).await?;
@@ -91,7 +93,7 @@ impl RegenerateCommand {
     #[tracing::instrument(skip_all)]
     async fn handle_voice_regen(self, config: SharedConfig, voice: RegenerateVoice) -> eyre::Result<()> {
         // Handle pattern-based regeneration across all voices
-        let tts_sys = super::reassign::create_tts_system(config)?;
+        let tts_sys = SmallTalkApplication::new(&config).await?.tts_system;
         let game_sess = tts_sys.get_or_start_session(&self.game_name).await?;
 
         // Get all voice lines matching patterns

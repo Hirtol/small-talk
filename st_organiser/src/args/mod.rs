@@ -1,5 +1,4 @@
 use crate::args::compress::CompressCommand;
-use crate::args::migrate::MigrateCommand;
 use crate::args::organise::OrganiseCommand;
 use crate::args::reassign::ReassignCommand;
 use crate::args::regenerate::RegenerateCommand;
@@ -8,8 +7,6 @@ pub mod organise;
 pub mod compress;
 pub mod reassign;
 pub mod regenerate;
-pub mod migrate;
-
 #[derive(clap::Parser, Debug)]
 #[clap(version, about)]
 pub struct ClapArgs {
@@ -35,14 +32,10 @@ pub enum SubCommands {
     #[clap(arg_required_else_help(true))]
     #[clap(alias = "regen")]
     RegenerateLines(RegenerateCommand),
-    #[clap(arg_required_else_help(true))]
-    #[clap(alias = "m")]
-    Migrate(MigrateCommand)
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 pub enum ClapTtsModel {
-    Xtts,
     IndexTts,
     EchoTts
 }
@@ -50,7 +43,6 @@ pub enum ClapTtsModel {
 impl From<ClapTtsModel> for st_system::TtsModel {
     fn from(value: ClapTtsModel) -> Self {
         match value {
-            ClapTtsModel::Xtts => st_system::TtsModel::Xtts,
             ClapTtsModel::IndexTts => st_system::TtsModel::IndexTts,
             ClapTtsModel::EchoTts => st_system::TtsModel::EchoTts
         }

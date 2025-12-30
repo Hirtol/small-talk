@@ -16,7 +16,7 @@ async fn main() -> eyre::Result<()> {
     subscriber.init();
 
     // Setup server
-    let config = st_http::config::initialise_config()?;
+    let config = st_application::config::initialise_config()?;
     let app = Application::new(config).await?;
 
     let notifier = get_quit_notifier();

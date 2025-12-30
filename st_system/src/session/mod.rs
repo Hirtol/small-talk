@@ -42,6 +42,7 @@ use std::{
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
 use tracing::log;
 use st_data::voice::{VoiceLocation, VoiceReference};
+use crate::emotion::EmotionCoordinator;
 
 const CONFIG_NAME: &str = "config.json";
 const DB_NAME: &str = "database.db";
@@ -70,7 +71,7 @@ impl GameSessionHandle {
         voice_man: Arc<VoiceManager>,
         tts: TtsCoordinator,
         rvc: RvcCoordinator,
-        emotion: EmotionBackend,
+        emotion: EmotionCoordinator,
         config: Arc<TtsSystemConfig>,
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);

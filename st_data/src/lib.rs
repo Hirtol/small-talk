@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use voice::{Voice, VoiceReference};
+use voice::{VoiceReference};
 
 pub mod voice;
 
@@ -87,7 +87,6 @@ pub enum Gender {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TtsModel {
-    Xtts,
     IndexTts,
     EchoTts
 }

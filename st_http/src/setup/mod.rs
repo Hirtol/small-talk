@@ -1,6 +1,6 @@
 use crate::{
     api::AppState,
-    config::{Config, SharedConfig},
+    config::{SmallTalkHttpConfig},
 };
 use axum::{
     error_handling::HandleErrorLayer, http::{header, HeaderValue, StatusCode},
@@ -14,10 +14,6 @@ use st_system::{
         RvcCoordinator,
     },
     tts_backends::{
-        alltalk::{
-            local::{LocalAllTalkConfig, LocalAllTalkHandle},
-            AllTalkConfig,
-        },
         indextts::{
             api::IndexTtsApiConfig,
             LocalIndexTtsConfig,
@@ -31,11 +27,14 @@ use std::{
     sync::{Arc, LazyLock},
     time::Duration,
 };
+use std::path::PathBuf;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, services::ServeFile, trace::TraceLayer};
+use st_application::SmallTalkApplication;
 use st_ml::stt::WhisperTranscribe;
+use st_system::emotion::EmotionCoordinator;
 use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
 
@@ -43,84 +42,23 @@ mod first_time;
 
 pub struct Application {
     pub tcp: TcpListener,
-    pub config: SharedConfig,
-    pub voice: TtsSystemHandle,
+    pub config: Arc<SmallTalkHttpConfig>,
+    pub small_talk: SmallTalkApplication,
 }
 
 impl Application {
     #[tracing::instrument(name = "Create application", skip(config), fields(addr = config.app.host, port = config.app.port))]
-    pub async fn new(config: Config) -> eyre::Result<Self> {
+    pub async fn new(config: SmallTalkHttpConfig) -> eyre::Result<Self> {
         let tcp = TcpListener::bind(config.app.bind_address()).await?;
 
         first_time::first_time_setup(&config).await?;
+        let small_talk = SmallTalkApplication::new(&config.small_talk).await?;
         let config = Arc::new(config);
-
-        let xtts = config
-            .xtts
-            .if_enabled()
-            .map(|xtts| {
-                let all_talk_cfg = LocalAllTalkConfig {
-                    instance_path: xtts.local_all_talk.clone(),
-                    timeout: xtts.timeout,
-                    api: xtts.alltalk_cfg.clone(),
-                };
-
-                LocalAllTalkHandle::new(all_talk_cfg)
-            })
-            .transpose()?;
-
-        let index = config
-            .index_tts
-            .if_enabled()
-            .map(|cfg| IndexTtsHandle::new(cfg.clone()))
-            .transpose()?;
-
-        let echo = config
-            .echo_tts
-            .if_enabled()
-            .map(|cfg| EchoTtsHandle::new(cfg.clone()))
-            .transpose()?;
-
-        let whisper = if let Some(whisper_path) = config.dirs.whisper_model.clone() {
-            let cpu_threads = std::thread::available_parallelism()?.get() / 2;
-            Some(Arc::new(Mutex::new(WhisperTranscribe::new(whisper_path, cpu_threads as u16)?)))
-        } else {
-            None
-        };
-
-        let tts_backend = TtsCoordinator::new(xtts, index, echo, whisper);
-
-        let mut seedvc_cfg = config.seed_vc.if_enabled().map(|seed_vc| LocalSeedVcConfig {
-            instance_path: seed_vc.local_path.clone(),
-            timeout: seed_vc.timeout,
-            api: seed_vc.config.clone(),
-            high_quality: false,
-        });
-        let seedvc = seedvc_cfg
-            .clone()
-            .map(|seedvc_cfg| LocalSeedHandle::new(seedvc_cfg.clone()))
-            .transpose()?;
-        let seedvc_hq = seedvc_cfg
-            .map(|mut seedvc_cfg| {
-                seedvc_cfg.high_quality = true;
-                LocalSeedHandle::new(seedvc_cfg)
-            })
-            .transpose()?;
-        let rvc_backend = RvcCoordinator::new(seedvc, seedvc_hq);
-
-        let emotion_backend = EmotionBackend::new(&config.dirs)?;
-
-        let handle = Arc::new(TtsSystem::new(
-            config.dirs.clone(),
-            tts_backend,
-            rvc_backend,
-            emotion_backend,
-        ));
 
         let result = Application {
             tcp,
             config,
-            voice: handle,
+            small_talk,
         };
 
         Ok(result)
@@ -136,7 +74,7 @@ impl Application {
     pub async fn run(self, quitter: Arc<tokio::sync::Notify>) -> eyre::Result<()> {
         tracing::info!("Setup complete, starting server...");
 
-        let app = construct_server(self.config.clone(), self.voice.clone()).await?;
+        let app = construct_server(self.config.clone(), self.small_talk.tts_system.clone()).await?;
 
         tracing::info!("Listening on {:?}", self.tcp.local_addr()?);
 
@@ -153,7 +91,7 @@ impl Application {
             res = server => res.map_err(|e| eyre::eyre!(e))
         };
 
-        self.voice.shutdown().await?;
+        self.small_talk.shutdown().await?;
 
         result
     }
@@ -163,7 +101,7 @@ impl Application {
     }
 }
 
-async fn construct_server(config: SharedConfig, system: TtsSystemHandle) -> eyre::Result<Router> {
+async fn construct_server(config: Arc<SmallTalkHttpConfig>, system: TtsSystemHandle) -> eyre::Result<Router> {
     let state = AppState { config, system };
 
     let app_layers = ServiceBuilder::new()

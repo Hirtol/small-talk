@@ -1,7 +1,4 @@
-use crate::{
-    error::TtsError, timeout::DroppableState, tts_backends::alltalk::local::LocalAllTalkHandle,
-    voice_manager::FsVoiceSample,
-};
+use crate::{error::TtsError, timeout::DroppableState, voice_manager::FsVoiceSample};
 use echo_tts::EchoTtsHandle;
 use eyre::Context;
 use indextts::IndexTtsHandle;
@@ -10,7 +7,7 @@ use st_data::TtsModel;
 use st_ml::stt::WhisperTranscribe;
 use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
-pub mod alltalk;
+
 pub mod chunking;
 pub mod docker_backend;
 pub mod echo_tts;
@@ -22,7 +19,6 @@ pub type Result<T> = std::result::Result<T, TtsError>;
 /// The collection of TTS backend handles.
 #[derive(Clone)]
 pub struct TtsCoordinator {
-    pub xtts: Option<LocalAllTalkHandle>,
     pub index_tts: Option<IndexTtsHandle>,
     pub echo_tts: Option<EchoTtsHandle>,
     pub whisper: Option<Arc<Mutex<WhisperTranscribe>>>,
@@ -33,13 +29,11 @@ impl TtsCoordinator {
     ///
     /// If no TtsBackend model is provided all requests will return with [TtsError::ModelNotInitialised].
     pub fn new(
-        xtts_all_talk: Option<LocalAllTalkHandle>,
         index_tts: Option<IndexTtsHandle>,
         echo_tts: Option<EchoTtsHandle>,
         whisper: Option<Arc<Mutex<WhisperTranscribe>>>,
     ) -> Self {
         Self {
-            xtts: xtts_all_talk,
             index_tts,
             echo_tts,
             whisper,
@@ -50,12 +44,6 @@ impl TtsCoordinator {
     #[tracing::instrument(skip(self))]
     pub async fn tts_request(&self, model: TtsModel, req: BackendTtsRequest) -> Result<BackendTtsResponse> {
         match model {
-            TtsModel::Xtts => {
-                let Some(xtts) = &self.xtts else {
-                    return Err(TtsError::ModelNotInitialised { model });
-                };
-                Ok(xtts.submit_tts_request(req).await?)
-            }
             TtsModel::IndexTts => {
                 let Some(index) = &self.index_tts else {
                     return Err(TtsError::ModelNotInitialised { model });

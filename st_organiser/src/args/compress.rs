@@ -2,7 +2,7 @@ use eyre::ContextCompat;
 use itertools::Itertools;
 use path_abs::PathInfo;
 use rayon::prelude::*;
-use st_http::config::SharedConfig;
+use st_application::config::SharedConfig;
 use st_system::{
     session::{
         linecache::{LineCache, LineCacheEntry},

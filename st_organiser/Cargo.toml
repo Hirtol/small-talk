@@ -31,6 +31,6 @@ sqlx.workspace = true
 # ML
 st_ml = { path = "../st_ml", features = ["cuda"] }
 st_system = {path = "../st_system"}
-st_http = { path = "../st_http" }
+st_application = { path = "../st_application" }
 wavers.workspace = true
 rayon = "1.10.0"

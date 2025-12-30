@@ -22,6 +22,7 @@ use st_audio::postprocessing;
 use st_audio::audio_data::AudioData;
 use st_data::TtsModel;
 use st_data::voice::VoiceReference;
+use crate::emotion::EmotionCoordinator;
 use crate::session::metadata::VoicelineMetadata;
 
 pub type SingleRequest = (
@@ -51,7 +52,7 @@ impl VoiceLineRequest {
 pub(super) struct GameQueueActor {
     pub tts: TtsCoordinator,
     pub rvc: RvcCoordinator,
-    pub emotion: EmotionBackend,
+    pub emotion: EmotionCoordinator,
     pub data: Arc<GameSharedData>,
     pub queue: OrderedReceiver<SingleRequest>,
     pub priority: OrderedReceiver<SingleRequest>,

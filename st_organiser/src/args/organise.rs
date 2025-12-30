@@ -2,9 +2,6 @@ use eyre::ContextCompat;
 use futures::StreamExt;
 use itertools::Itertools;
 use path_abs::PathInfo;
-use st_http::{
-    config::{Config, SharedConfig},
-};
 use st_ml::{
     embeddings::LLamaEmbedder,
     emotion_classifier::{BasicEmotion, BasicEmotionClassifier},
@@ -16,7 +13,9 @@ use std::{
     io::BufReader,
     path::PathBuf,
 };
-use st_system::voice_manager::{VoiceLocation, VoiceManager, VoiceSample};
+use st_application::config::SharedConfig;
+use st_data::voice::VoiceLocation;
+use st_system::voice_manager::{VoiceManager, VoiceSample};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {
@@ -74,13 +73,13 @@ impl OrganiseCommand {
 
         let device = st_ml::burn::backend::ndarray::NdArrayDevice::default();
         let mut emotion_classifier: BasicEmotionClassifier<st_ml::CpuBackend> = BasicEmotionClassifier::new(
-            &config.dirs.emotion_classifier_model,
-            &config.dirs.bert_embeddings_model,
+            config.dirs.emotion_classifier_model.as_ref().expect("Expected emotion classifier to exist"),
+            &config.dirs.bert_embeddings_model.as_ref().expect("Expected emotion classifier to exist"),
             device,
         )?;
 
         let whisper_path = &config.dirs.whisper_model;
-        let mut whisper = st_ml::stt::WhisperTranscribe::new(whisper_path, 12)?;
+        let mut whisper = st_ml::stt::WhisperTranscribe::new(whisper_path.as_ref().expect("Expected Whisper to exist"), 12)?;
 
         let total_samples_to_process = queue.values().map(|d| d.len()).sum::<usize>();
 

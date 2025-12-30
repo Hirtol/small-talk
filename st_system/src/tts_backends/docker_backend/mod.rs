@@ -8,6 +8,7 @@ use eyre::ContextCompat;
 use futures::StreamExt;
 use std::{collections::HashMap, time::Duration};
 use bollard::container::StartContainerOptions;
+use bollard::query_parameters::StopContainerOptions;
 use crate::timeout::DroppableState;
 
 pub mod docker_utils;
@@ -55,7 +56,7 @@ impl DroppableState for DockerTemporaryState {
     }
 
     async fn on_kill(&mut self) -> eyre::Result<()> {
-        self.daemon.stop_container(self.docker_container.id.as_deref().unwrap(), None).await?;
+        self.daemon.stop_container(self.docker_container.id.as_deref().unwrap(), None::<StopContainerOptions>).await?;
         Ok(())
     }
 }
