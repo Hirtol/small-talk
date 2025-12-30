@@ -7,9 +7,6 @@ pub struct ScaleTempo {
     pub sample_rate: u32,
     scale: f64,
     channels: usize,
-    ms_stride: u32,
-    percent_overlap: f64,
-    ms_search: u32,
     stride_frames: usize,
     overlap_frames: usize,
     search_frames: usize,
@@ -62,9 +59,6 @@ impl ScaleTempo {
             scale: 1.0,
             sample_rate,
             channels,
-            ms_stride,
-            percent_overlap,
-            ms_search,
             stride_frames,
             overlap_frames,
             search_frames,
@@ -218,8 +212,7 @@ impl ScaleTempo {
             offset += consumed;
         }
 
-        let consumed = self.fill_queue(input, offset);
-        offset += consumed;
+        let _ = self.fill_queue(input, offset);
 
         output
     }

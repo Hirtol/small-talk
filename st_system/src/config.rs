@@ -20,11 +20,13 @@ impl Default for TtsSystemConfig {
     fn default() -> Self {
         let app_dir = crate::get_app_dirs().config_dir;
         let appdata_dir = app_dir.join("appdata");
-        let models_dir = appdata_dir.join("../../models");
+        // let models_dir = app_dir.join("models");
         Self {
             whisper_model: None,
-            emotion_classifier_model: Some(models_dir.join("text_emotion_classifier").join("classifier_head")),
-            bert_embeddings_model: Some(models_dir.join("text_emotion_classifier").join("ggml-model-Q4_k.gguf")),
+            // Would be `models_dir.join("text_emotion_classifier").join("classifier_head")`
+            emotion_classifier_model: None,
+            // Would be `models_dir.join("text_emotion_classifier").join("ggml-model-Q4_k.gguf")`
+            bert_embeddings_model: None,
             appdata_dir,
         }
     }

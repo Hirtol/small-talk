@@ -3,8 +3,7 @@ use crate::{
     config::{SmallTalkHttpConfig},
 };
 use axum::{
-    error_handling::HandleErrorLayer, http::{header, HeaderValue, StatusCode},
-    routing::{get_service, MethodRouter},
+    error_handling::HandleErrorLayer, http::{StatusCode},
     BoxError,
     Router,
 };

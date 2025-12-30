@@ -1,4 +1,5 @@
-use eyre::{OptionExt};
+use crate::scale_tempo::{RefInterlacedSamples, ScaleTempo};
+use eyre::OptionExt;
 use futures::{future::BoxFuture, FutureExt};
 use kira::{
     effect::{
@@ -12,16 +13,12 @@ use kira::{
     DefaultBackend,
     Tween,
 };
-use std::{
-    collections::VecDeque,
-    sync::{Arc},
-    time::Duration,
-};
 use st_data::{TtsResponse, VoiceLine};
-use crate::scale_tempo::{ScaleTempo, RefInterlacedSamples};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 
 pub trait VoiceLineDataSource: Send + Sync + 'static {
-    fn request_tts_data(&self, line: VoiceLine) -> impl Future<Output=eyre::Result<Arc<TtsResponse>>> + Send;
+    fn request_tts_data(&self, line: VoiceLine) -> impl Future<Output = eyre::Result<Arc<TtsResponse>>> + Send;
 }
 
 #[derive(Clone)]
@@ -129,8 +126,12 @@ impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
 
                     self.handle_message(msg).await?;
                 },
-                Some(Ok(tts)) = one_shot_future => {
-                    self.handle_tts_sample(tts).await?;
+                Some(future_result) = one_shot_future => match future_result {
+                    Ok(Ok(tts)) => self.handle_tts_sample(tts).await?,
+                    _ => {
+                        self.state = PlaybackEngineState::Idle;
+                        tracing::warn!("PlaybackEngine failed to acquire TTS sample due to: {future_result:?}")
+                    }
                 },
                 _ = check_interval.tick() => {
                     self.handle_queue_tick().await?;
@@ -170,7 +171,7 @@ impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
 
     #[tracing::instrument(skip(self))]
     async fn handle_tts_sample(&mut self, tts: Arc<TtsResponse>) -> eyre::Result<()> {
-        let Ok(mut file) = StaticSoundData::from_file(&tts.file_path) else {
+        let Ok(file) = StaticSoundData::from_file(&tts.file_path) else {
             // Can only happen if the cache was corrupted somehow (or the user's filesystem is broken)
             tracing::warn!(?tts.file_path, "Given file-path for TTS line was invalid, requesting new generation");
             self.state = PlaybackEngineState::Idle;
@@ -251,7 +252,7 @@ impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
     async fn start_playback_request(&mut self, request: PlaybackVoiceLine, data_source: Arc<T>) -> eyre::Result<()> {
         let new_state = PlaybackEngineWaitingState {
             current_settings: request.playback.unwrap_or_default(),
-            current_future: async move { data_source.request_tts_data(request.line).await }.boxed(),
+            current_future: tokio::spawn(async move { data_source.request_tts_data(request.line).await }),
         };
         self.state = PlaybackEngineState::Waiting(new_state);
 
@@ -301,7 +302,7 @@ impl PlaybackEngineState {
 struct PlaybackEngineWaitingState {
     current_settings: PlaybackSettings,
 
-    current_future: BoxFuture<'static, eyre::Result<Arc<TtsResponse>>>
+    current_future: JoinHandle<eyre::Result<Arc<TtsResponse>>>,
 }
 
 #[derive(Debug)]
