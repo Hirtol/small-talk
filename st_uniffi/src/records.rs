@@ -6,8 +6,8 @@ pub struct VoiceReference {
     pub location: VoiceLocation,
 }
 
-impl From<st_system::voice_manager::VoiceReference> for VoiceReference {
-    fn from(value: st_system::voice_manager::VoiceReference) -> Self {
+impl From<st_data::voice::VoiceReference> for VoiceReference {
+    fn from(value: st_data::voice::VoiceReference) -> Self {
         Self {
             name: value.name,
             location: value.location.into(),
@@ -15,7 +15,7 @@ impl From<st_system::voice_manager::VoiceReference> for VoiceReference {
     }
 }
 
-impl From<VoiceReference> for st_system::voice_manager::VoiceReference {
+impl From<VoiceReference> for st_data::voice::VoiceReference {
     fn from(value: VoiceReference) -> Self {
         Self {
             name: value.name,
@@ -30,20 +30,20 @@ pub enum VoiceLocation {
     Game { name: String },
 }
 
-impl From<st_system::voice_manager::VoiceLocation> for VoiceLocation {
-    fn from(value: st_system::voice_manager::VoiceLocation) -> Self {
+impl From<st_data::voice::VoiceLocation> for VoiceLocation {
+    fn from(value: st_data::voice::VoiceLocation) -> Self {
         match value {
-            st_system::voice_manager::VoiceLocation::Global => Self::Global,
-            st_system::voice_manager::VoiceLocation::Game(game) => Self::Game { name: game },
+            st_data::voice::VoiceLocation::Global => Self::Global,
+            st_data::voice::VoiceLocation::Game(game) => Self::Game { name: game },
         }
     }
 }
 
-impl From<VoiceLocation> for st_system::voice_manager::VoiceLocation {
+impl From<VoiceLocation> for st_data::voice::VoiceLocation {
     fn from(value: VoiceLocation) -> Self {
         match value {
-            VoiceLocation::Global => st_system::voice_manager::VoiceLocation::Global,
-            VoiceLocation::Game { name } => st_system::voice_manager::VoiceLocation::Game(name)
+            VoiceLocation::Global => st_data::voice::VoiceLocation::Global,
+            VoiceLocation::Game { name } => st_data::voice::VoiceLocation::Game(name)
         }
     }
 }
@@ -57,8 +57,8 @@ pub struct VoiceLine {
     pub post: Option<PostProcessing>,
 }
 
-impl From<st_system::data::VoiceLine> for VoiceLine {
-    fn from(value: st_system::data::VoiceLine) -> Self {
+impl From<st_data::VoiceLine> for VoiceLine {
+    fn from(value: st_data::VoiceLine) -> Self {
         Self {
             line: value.line,
             person: value.person.into(),
@@ -69,7 +69,7 @@ impl From<st_system::data::VoiceLine> for VoiceLine {
     }
 }
 
-impl From<VoiceLine> for st_system::data::VoiceLine {
+impl From<VoiceLine> for st_data::VoiceLine {
     fn from(value: VoiceLine) -> Self {
         Self {
             line: value.line,
@@ -88,8 +88,8 @@ pub struct TtsResponse {
     pub voice_used: VoiceReference,
 }
 
-impl From<st_system::data::TtsResponse> for TtsResponse {
-    fn from(value: st_system::data::TtsResponse) -> Self {
+impl From<st_data::TtsResponse> for TtsResponse {
+    fn from(value: st_data::TtsResponse) -> Self {
         Self {
             file_path: value.file_path.to_string_lossy().to_string(),
             line: value.line,
@@ -98,7 +98,7 @@ impl From<st_system::data::TtsResponse> for TtsResponse {
     }
 }
 
-impl From<TtsResponse> for st_system::data::TtsResponse {
+impl From<TtsResponse> for st_data::TtsResponse {
     fn from(value: TtsResponse) -> Self {
         Self {
             file_path: PathBuf::from(value.file_path),
@@ -114,16 +114,16 @@ pub enum TtsVoice {
     CharacterVoice(CharacterVoice),
 }
 
-impl From<st_system::data::TtsVoice> for TtsVoice {
-    fn from(value: st_system::data::TtsVoice) -> Self {
+impl From<st_data::TtsVoice> for TtsVoice {
+    fn from(value: st_data::TtsVoice) -> Self {
         match value {
-            st_system::data::TtsVoice::ForceVoice(voice_ref) => Self::ForceVoice(voice_ref.into()),
-            st_system::data::TtsVoice::CharacterVoice(char) => Self::CharacterVoice(char.into()),
+            st_data::TtsVoice::ForceVoice(voice_ref) => Self::ForceVoice(voice_ref.into()),
+            st_data::TtsVoice::CharacterVoice(char) => Self::CharacterVoice(char.into()),
         }
     }
 }
 
-impl From<TtsVoice> for st_system::data::TtsVoice {
+impl From<TtsVoice> for st_data::TtsVoice {
     fn from(value: TtsVoice) -> Self {
         match value {
             TtsVoice::ForceVoice(voice_ref) => Self::ForceVoice(voice_ref.into()),
@@ -140,8 +140,8 @@ pub struct PostProcessing {
     pub rvc: Option<RvcOptions>,
 }
 
-impl From<st_system::data::PostProcessing> for PostProcessing {
-    fn from(value: st_system::data::PostProcessing) -> Self {
+impl From<st_data::PostProcessing> for PostProcessing {
+    fn from(value: st_data::PostProcessing) -> Self {
         Self {
             verify_percentage: value.verify_percentage,
             trim_silence: value.trim_silence,
@@ -151,7 +151,7 @@ impl From<st_system::data::PostProcessing> for PostProcessing {
     }
 }
 
-impl From<PostProcessing> for st_system::data::PostProcessing {
+impl From<PostProcessing> for st_data::PostProcessing {
     fn from(value: PostProcessing) -> Self {
         Self {
             verify_percentage: value.verify_percentage,
@@ -168,8 +168,8 @@ pub struct RvcOptions {
     pub high_quality: bool,
 }
 
-impl From<st_system::data::RvcOptions> for RvcOptions {
-    fn from(value: st_system::data::RvcOptions) -> Self {
+impl From<st_data::RvcOptions> for RvcOptions {
+    fn from(value: st_data::RvcOptions) -> Self {
         Self {
             model: value.model.into(),
             high_quality: value.high_quality,
@@ -177,7 +177,7 @@ impl From<st_system::data::RvcOptions> for RvcOptions {
     }
 }
 
-impl From<RvcOptions> for st_system::data::RvcOptions {
+impl From<RvcOptions> for st_data::RvcOptions {
     fn from(value: RvcOptions) -> Self {
         Self {
             model: value.model.into(),
@@ -191,15 +191,15 @@ pub enum RvcModel {
     SeedVc,
 }
 
-impl From<st_system::data::RvcModel> for RvcModel {
-    fn from(value: st_system::data::RvcModel) -> Self {
+impl From<st_data::RvcModel> for RvcModel {
+    fn from(value: st_data::RvcModel) -> Self {
         match value {
-            st_system::data::RvcModel::SeedVc => Self::SeedVc,
+            st_data::RvcModel::SeedVc => Self::SeedVc,
         }
     }
 }
 
-impl From<RvcModel> for st_system::data::RvcModel {
+impl From<RvcModel> for st_data::RvcModel {
     fn from(value: RvcModel) -> Self {
         match value {
             RvcModel::SeedVc => Self::SeedVc,
@@ -214,20 +214,20 @@ pub enum TtsModel {
     EchoTts,
 }
 
-impl From<st_system::data::TtsModel> for TtsModel {
-    fn from(value: st_system::data::TtsModel) -> Self {
+impl From<st_data::TtsModel> for TtsModel {
+    fn from(value: st_data::TtsModel) -> Self {
         match value {
-            st_system::data::TtsModel::Xtts => Self::Xtts,
-            st_system::data::TtsModel::IndexTts => Self::IndexTts,
-            st_system::data::TtsModel::EchoTts => Self::EchoTts,
+            st_data::TtsModel::Xtts => Self::Xtts,
+            st_data::TtsModel::IndexTts => Self::IndexTts,
+            st_data::TtsModel::EchoTts => Self::EchoTts,
         }
     }
 }
 
-impl From<TtsModel> for st_system::data::TtsModel {
+impl From<TtsModel> for st_data::TtsModel {
     fn from(value: TtsModel) -> Self {
         match value {
-            TtsModel::Xtts => st_system::data::TtsModel::Xtts,
+            TtsModel::Xtts => st_data::TtsModel::Xtts,
             TtsModel::IndexTts => Self::IndexTts,
             TtsModel::EchoTts => Self::EchoTts,
         }
@@ -241,22 +241,22 @@ pub enum PlaybackEnvironment {
     Cave,
 }
 
-impl From<st_system::audio::playback::PlaybackEnvironment> for PlaybackEnvironment {
-    fn from(value: st_system::audio::playback::PlaybackEnvironment) -> Self {
+impl From<st_audio::playback::PlaybackEnvironment> for PlaybackEnvironment {
+    fn from(value: st_audio::playback::PlaybackEnvironment) -> Self {
         match value {
-            st_system::audio::playback::PlaybackEnvironment::Outdoors => Self::Outdoors,
-            st_system::audio::playback::PlaybackEnvironment::Indoors => Self::Indoors,
-            st_system::audio::playback::PlaybackEnvironment::Cave => Self::Cave,
+            st_audio::playback::PlaybackEnvironment::Outdoors => Self::Outdoors,
+            st_audio::playback::PlaybackEnvironment::Indoors => Self::Indoors,
+            st_audio::playback::PlaybackEnvironment::Cave => Self::Cave,
         }
     }
 }
 
-impl From<PlaybackEnvironment> for st_system::audio::playback::PlaybackEnvironment {
+impl From<PlaybackEnvironment> for st_audio::playback::PlaybackEnvironment {
     fn from(value: PlaybackEnvironment) -> Self {
         match value {
-            PlaybackEnvironment::Outdoors => st_system::audio::playback::PlaybackEnvironment::Outdoors,
-            PlaybackEnvironment::Indoors => st_system::audio::playback::PlaybackEnvironment::Indoors,
-            PlaybackEnvironment::Cave => st_system::audio::playback::PlaybackEnvironment::Cave,
+            PlaybackEnvironment::Outdoors => st_audio::playback::PlaybackEnvironment::Outdoors,
+            PlaybackEnvironment::Indoors => st_audio::playback::PlaybackEnvironment::Indoors,
+            PlaybackEnvironment::Cave => st_audio::playback::PlaybackEnvironment::Cave,
         }
     }
 }
@@ -268,8 +268,8 @@ pub struct PlaybackSettings {
     pub speed: Option<f64>,
 }
 
-impl From<st_system::audio::playback::PlaybackSettings> for PlaybackSettings {
-    fn from(value: st_system::audio::playback::PlaybackSettings) -> Self {
+impl From<st_audio::playback::PlaybackSettings> for PlaybackSettings {
+    fn from(value: st_audio::playback::PlaybackSettings) -> Self {
         Self {
             environment: value.environment.map(|e| e.into()),
             volume: value.volume,
@@ -278,7 +278,7 @@ impl From<st_system::audio::playback::PlaybackSettings> for PlaybackSettings {
     }
 }
 
-impl From<PlaybackSettings> for st_system::audio::playback::PlaybackSettings {
+impl From<PlaybackSettings> for st_audio::playback::PlaybackSettings {
     fn from(value: PlaybackSettings) -> Self {
         Self {
             environment: value.environment.map(|e| e.into()),
@@ -294,8 +294,8 @@ pub struct PlaybackVoiceLine {
     pub playback: Option<PlaybackSettings>,
 }
 
-impl From<st_system::audio::playback::PlaybackVoiceLine> for PlaybackVoiceLine {
-    fn from(value: st_system::audio::playback::PlaybackVoiceLine) -> Self {
+impl From<st_audio::playback::PlaybackVoiceLine> for PlaybackVoiceLine {
+    fn from(value: st_audio::playback::PlaybackVoiceLine) -> Self {
         Self {
             request: value.line.into(),
             playback: value.playback.map(|p| p.into()),
@@ -303,7 +303,7 @@ impl From<st_system::audio::playback::PlaybackVoiceLine> for PlaybackVoiceLine {
     }
 }
 
-impl From<PlaybackVoiceLine> for st_system::audio::playback::PlaybackVoiceLine {
+impl From<PlaybackVoiceLine> for st_audio::playback::PlaybackVoiceLine {
     fn from(value: PlaybackVoiceLine) -> Self {
         Self {
             line: value.request.into(),
@@ -327,7 +327,7 @@ impl From<st_system::CharacterVoice> for CharacterVoice {
     }
 }
 
-impl From<CharacterVoice> for st_system::data::CharacterVoice {
+impl From<CharacterVoice> for st_data::CharacterVoice {
     fn from(value: CharacterVoice) -> Self {
         Self {
             name: value.name,

@@ -1,4 +1,4 @@
-use crate::audio::audio_data::AudioData;
+use st_audio::audio_data::AudioData;
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};

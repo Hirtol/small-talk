@@ -1,19 +1,12 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-use itertools::Itertools;
-use st_ml::emotion_classifier::BasicEmotion;
-use std::path::PathBuf;
-use std::sync::Arc;
+use crate::{config::TtsSystemConfig, error::VoiceManagerError};
 use eyre::ContextCompat;
+use itertools::Itertools;
 use path_abs::{PathInfo, PathOps};
 use rand::prelude::IteratorRandom;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use st_data::voice::{VoiceLocation, VoiceReference};
+use st_ml::emotion_classifier::BasicEmotion;
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc};
 use walkdir::DirEntry;
-use crate::config::TtsSystemConfig;
-use crate::error::VoiceManagerError;
-use crate::session::db;
-use crate::Voice;
 
 #[derive(Debug, Clone)]
 pub struct VoiceManager {
@@ -28,22 +21,18 @@ impl VoiceManager {
     pub fn get_voice(&self, voice: VoiceReference) -> Result<FsVoiceData, VoiceManagerError> {
         // Necessary guard, if we don't have this we'd refer to the root `voice` directory!
         if voice.name.is_empty() {
-            return Err(VoiceManagerError::VoiceDoesNotExist {
-                voice: voice.name,
-            });
+            return Err(VoiceManagerError::VoiceDoesNotExist { voice: voice.name });
         }
 
-        let path = voice.location.to_path(&self.conf).join(&voice.name);
+        let path = location_to_path(&voice.location, &self.conf).join(&voice.name);
 
         if path.exists() {
             Ok(FsVoiceData {
                 dir: path,
                 reference: voice,
-            })    
-        } else {
-            Err(VoiceManagerError::VoiceDoesNotExist {
-                voice: voice.name,
             })
+        } else {
+            Err(VoiceManagerError::VoiceDoesNotExist { voice: voice.name })
         }
     }
 
@@ -87,15 +76,20 @@ impl VoiceManager {
             })
             .collect_vec()
     }
-    
+
     /// Store all given voice samples in the appropriate place in `dest`.
-    /// 
+    ///
     /// Renames the sample to the expected name representing the emotion embedded in the sample.
     /// This is later used for sample collection.
-    pub fn store_voice_samples(&mut self, dest: VoiceLocation, voice_name: &str, samples: Vec<VoiceSample>) -> eyre::Result<()> {
-        let destination = dest.to_path(&self.conf).join(voice_name);
+    pub fn store_voice_samples(
+        &mut self,
+        dest: VoiceLocation,
+        voice_name: &str,
+        samples: Vec<VoiceSample>,
+    ) -> eyre::Result<()> {
+        let destination = location_to_path(&dest, &self.conf).join(voice_name);
         std::fs::create_dir_all(&destination)?;
-        
+
         let mut existing_samples = {
             let refs = VoiceReference {
                 name: voice_name.into(),
@@ -107,7 +101,7 @@ impl VoiceManager {
                 HashMap::default()
             }
         };
-        
+
         for sample in samples {
             let sample_collection = existing_samples.entry(sample.emotion).or_default();
             let name = format!("{:?}_{}.wav", sample.emotion, sample_collection.len());
@@ -118,93 +112,100 @@ impl VoiceManager {
                 std::fs::write(sample_dest, text)?
             }
         }
-        
+
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct VoiceReference {
-    pub name: Voice,
-    pub location: VoiceLocation,
-}
-
-impl VoiceReference {
-    pub fn from_strings(name: Voice, location: String) -> VoiceReference {
-        Self {
-            name,
-            location: VoiceLocation::from(location),
-        }
-    }
-
-    pub fn global(name: impl Into<Voice>) -> VoiceReference {
-        VoiceReference {
-            name: name.into(),
-            location: VoiceLocation::Global,
-        }
-    }
-    
-    pub fn game(name: impl Into<Voice>, game_name: impl Into<String>) -> VoiceReference {
-        VoiceReference {
-            name: name.into(),
-            location: VoiceLocation::Game(game_name.into()),
-        }
+pub fn location_to_path(location: &VoiceLocation, conf: &TtsSystemConfig) -> PathBuf {
+    match location {
+        VoiceLocation::Global => conf.global_voice(),
+        VoiceLocation::Game(game_name) => conf.game_voice(game_name),
     }
 }
 
-impl From<db::voice_lines::Model> for VoiceReference {
-    fn from(value: db::voice_lines::Model) -> Self {
-       Self {
-            name: value.voice_name,
-            location: value.voice_location.into()
-        }
-    }
-}
-
-impl From<db::characters::Model> for VoiceReference {
-    fn from(value: db::characters::Model) -> Self {
-        Self {
-            name: value.voice_name,
-            location: value.voice_location.into()
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum VoiceLocation {
-    Global,
-    Game(String)
-}
-
-impl VoiceLocation {
-    pub fn to_string_value(&self) -> String {
-        match self {
-            VoiceLocation::Global => "global".into(),
-            VoiceLocation::Game(game_val) => game_val.clone()
-        }
-    }
-
-    pub fn to_path(&self, conf: &TtsSystemConfig) -> PathBuf {
-        match self {
-            VoiceLocation::Global => {
-                conf.global_voice()
-            },
-            VoiceLocation::Game(game_name) => {
-                conf.game_voice(game_name)
-            }
-        }
-    }
-}
-
-impl From<String> for VoiceLocation {
-    fn from(value: String) -> Self {
-        if value == "global" || value == "Global" {
-            Self::Global
-        } else {
-            Self::Game(value)
-        }
-    }
-}
+// #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
+// pub struct VoiceReference {
+//     pub name: Voice,
+//     pub location: VoiceLocation,
+// }
+//
+// impl VoiceReference {
+//     pub fn from_strings(name: Voice, location: String) -> VoiceReference {
+//         Self {
+//             name,
+//             location: VoiceLocation::from(location),
+//         }
+//     }
+//
+//     pub fn global(name: impl Into<Voice>) -> VoiceReference {
+//         VoiceReference {
+//             name: name.into(),
+//             location: VoiceLocation::Global,
+//         }
+//     }
+//
+//     pub fn game(name: impl Into<Voice>, game_name: impl Into<String>) -> VoiceReference {
+//         VoiceReference {
+//             name: name.into(),
+//             location: VoiceLocation::Game(game_name.into()),
+//         }
+//     }
+// }
+//
+// impl From<db::voice_lines::Model> for VoiceReference {
+//     fn from(value: db::voice_lines::Model) -> Self {
+//        Self {
+//             name: value.voice_name,
+//             location: value.voice_location.into()
+//         }
+//     }
+// }
+//
+// impl From<db::characters::Model> for VoiceReference {
+//     fn from(value: db::characters::Model) -> Self {
+//         Self {
+//             name: value.voice_name,
+//             location: value.voice_location.into()
+//         }
+//     }
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Ord, PartialOrd, Eq, PartialEq, Hash)]
+// pub enum VoiceLocation {
+//     Global,
+//     Game(String)
+// }
+//
+// impl VoiceLocation {
+//     pub fn to_string_value(&self) -> String {
+//         match self {
+//             VoiceLocation::Global => "global".into(),
+//             VoiceLocation::Game(game_val) => game_val.clone()
+//         }
+//     }
+//
+//     pub fn to_path(&self, conf: &TtsSystemConfig) -> PathBuf {
+//         match self {
+//             VoiceLocation::Global => {
+//                 conf.global_voice()
+//             },
+//             VoiceLocation::Game(game_name) => {
+//                 conf.game_voice(game_name)
+//             }
+//         }
+//     }
+// }
+//
+// impl From<String> for VoiceLocation {
+//     fn from(value: String) -> Self {
+//         if value == "global" || value == "Global" {
+//             Self::Global
+//         } else {
+//             Self::Game(value)
+//         }
+//     }
+// }
 
 /// A voice for TTS usage which is found on disk
 #[derive(Debug, Clone)]
@@ -223,7 +224,7 @@ pub struct VoiceSample {
     pub emotion: BasicEmotion,
     /// If there is spoken text present, list what it is
     pub spoken_text: Option<String>,
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -239,30 +240,30 @@ pub struct FsVoiceSample {
 impl FsVoiceSample {
     /// Hard link this voice sample to the given directory, and use the given `name`
     /// as the reference.
-    /// 
+    ///
     /// Both directories are expected to be on the same filesystem.
     pub fn link_to_name(&self, dir: PathBuf, name: &str) -> eyre::Result<LinkedFsVoiceSample> {
         let sample_ext = self.sample.extension();
         let target_sample = dir.join(name).with_extension(sample_ext.unwrap_or("wav".as_ref()));
         std::fs::hard_link(&self.sample, &target_sample)?;
-        
+
         let target_spoken = if let Some(spoken) = &self.spoken_text {
             let target_text_name = format!("{name}.reference.txt");
             let target_spoken = dir.join(target_text_name);
-            
+
             std::fs::hard_link(spoken, &target_spoken)?;
             Some(target_spoken)
         } else {
             None
         };
-        
+
         Ok(LinkedFsVoiceSample(FsVoiceSample {
             emotion: self.emotion,
             spoken_text: target_spoken,
             sample: target_sample,
         }))
     }
-    
+
     /// Read the sample's data
     pub async fn data(&self) -> eyre::Result<Vec<u8>> {
         Ok(tokio::fs::read(&self.sample).await?)
@@ -270,9 +271,13 @@ impl FsVoiceSample {
 
     /// Get the name of this sample
     pub fn name(&self) -> eyre::Result<Cow<'_, str>> {
-        Ok(self.sample.file_name().ok_or_else(|| eyre::eyre!("no filename"))?.to_string_lossy())
+        Ok(self
+            .sample
+            .file_name()
+            .ok_or_else(|| eyre::eyre!("no filename"))?
+            .to_string_lossy())
     }
-    
+
     /// If the sample has spoken text, recall what it was.
     pub async fn spoken_text(&self) -> eyre::Result<Option<String>> {
         let Some(path) = self.spoken_text_path() else {
@@ -280,16 +285,12 @@ impl FsVoiceSample {
         };
         Ok(Some(tokio::fs::read_to_string(&path).await?))
     }
-    
+
     /// The saved contents for this text.
     pub fn spoken_text_path(&self) -> Option<PathBuf> {
         let sample_dir = self.sample.with_extension("txt");
-        
-        if sample_dir.exists() {
-            Some(sample_dir)
-        } else {
-            None
-        }
+
+        if sample_dir.exists() { Some(sample_dir) } else { None }
     }
 }
 
@@ -335,8 +336,8 @@ impl FsVoiceData {
             })
             .collect())
     }
-    
-    fn all_samples(&self) -> impl Iterator<Item=FsVoiceSample> {
+
+    fn all_samples(&self) -> impl Iterator<Item = FsVoiceSample> {
         walkdir::WalkDir::new(&self.dir)
             .min_depth(1)
             .max_depth(2)
@@ -353,14 +354,14 @@ impl FsVoiceData {
                 })
             })
     }
-    
+
     /// Select any random sample in the dataset.
     pub fn random_sample(&self) -> eyre::Result<FsVoiceSample> {
         self.all_samples()
             .choose(&mut rand::rng())
             .context("No sample available")
     }
-    
+
     /// Try to find a random voice sample which adheres to the given predicate
     pub fn try_random_sample(&self, predicate: impl FnMut(&FsVoiceSample) -> bool) -> eyre::Result<FsVoiceSample> {
         self.all_samples()
@@ -368,7 +369,7 @@ impl FsVoiceData {
             .choose(&mut rand::rng())
             .context("No sample available matching the predicate")
     }
-    
+
     pub fn get_samples(&self) -> eyre::Result<HashMap<BasicEmotion, Vec<FsVoiceSample>>> {
         let mut output = HashMap::new();
 
@@ -376,7 +377,7 @@ impl FsVoiceData {
             let coll: &mut Vec<_> = output.entry(out.emotion).or_default();
             coll.push(out)
         }
-        
+
         Ok(output)
     }
 
@@ -385,15 +386,23 @@ impl FsVoiceData {
     /// # Returns
     ///
     /// An iterator in the order of most-to-least matching order for the given `emotion`.
-    pub fn try_emotion_sample(&self, emotion: BasicEmotion) -> eyre::Result<impl Iterator<Item=Vec<FsVoiceSample>> + use<>> {
+    pub fn try_emotion_sample(
+        &self,
+        emotion: BasicEmotion,
+    ) -> eyre::Result<impl Iterator<Item = Vec<FsVoiceSample>> + use<>> {
         let mut samples = self.get_samples()?;
 
-        Ok(emotion.to_preference_order()
+        Ok(emotion
+            .to_preference_order()
             .into_iter()
             .flat_map(move |emotion| samples.remove(&emotion)))
     }
 }
 
 fn is_wav(d: &DirEntry) -> bool {
-    d.file_type().is_file() && d.path().extension().map(|e| e.to_string_lossy() == "wav").unwrap_or_default()
+    d.file_type().is_file()
+        && d.path()
+            .extension()
+            .map(|e| e.to_string_lossy() == "wav")
+            .unwrap_or_default()
 }

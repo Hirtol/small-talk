@@ -1,18 +1,16 @@
 use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::session::db::DatabaseGender;
-use crate::voice_manager::VoiceReference;
+use voice::{Voice, VoiceReference};
 
-/// Internal name for a particular voice.
-pub type Voice = String;
+pub mod voice;
 
 /// The name of a character, this will be associated with a set voice
 pub type CharacterName = String;
 
 #[derive(Debug, Clone)]
 pub struct TtsResponse {
-    /// Local file path to the generated line 
+    /// Local file path to the generated line
     pub file_path: PathBuf,
     /// Text of the generated line
     pub line: String,
@@ -73,7 +71,7 @@ pub struct CharacterVoice {
     /// The name of the character speaking
     pub name: CharacterName,
     /// The gender of the given person.
-    /// 
+    ///
     /// If this [CharacterName] does not yet have a [Voice] assigned a random one with a fitting gender will be assigned.
     pub gender: Option<Gender>,
 }
@@ -85,31 +83,7 @@ pub enum Gender {
     Female,
 }
 
-impl Gender {
-    pub fn to_db(self) -> DatabaseGender {
-        self.into()
-    }
-}
 
-impl From<DatabaseGender> for Gender {
-    fn from(value: DatabaseGender) -> Self {
-        match value {
-            DatabaseGender::Male => Gender::Male,
-            DatabaseGender::Female => Gender::Female
-        }
-    }
-}
-
-impl From<Gender> for DatabaseGender {
-    fn from(value: Gender) -> Self {
-        match value {
-            Gender::Male => {
-                DatabaseGender::Male
-            }
-            Gender::Female => DatabaseGender::Female
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum TtsModel {

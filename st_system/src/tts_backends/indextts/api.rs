@@ -1,7 +1,7 @@
 use reqwest::{multipart, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use url::Url;
-use crate::audio::audio_data::AudioData;
+use st_audio::audio_data::AudioData;
 use crate::timeout::DroppableState;
 use crate::tts_backends::generic_backend::TtsApi;
 

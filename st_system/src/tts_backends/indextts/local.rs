@@ -1,5 +1,4 @@
 use crate::{
-    audio::AudioData,
     timeout::DroppableState,
     tts_backends::{
         docker_backend::{docker_utils::DockerTtsCreateConfig, DockerTemporaryState},
@@ -10,6 +9,7 @@ use crate::{
         },
     },
 };
+use st_audio::AudioData;
 
 const INDEX_TTS_DEFAULT_PORT: u16 = 11996;
 const INDEX_DOCKER_IMAGE: &str = "hirtol/index-tts-llvm:latest";

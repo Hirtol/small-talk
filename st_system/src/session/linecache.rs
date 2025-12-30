@@ -9,7 +9,7 @@ use crate::config::TtsSystemConfig;
 use crate::session::db;
 use crate::session::db::SessionDb;
 use crate::TtsResponse;
-use crate::voice_manager::{VoiceLocation, VoiceReference};
+use st_data::voice::{VoiceLocation, VoiceReference};
 use sea_orm::QueryFilter;
 
 #[derive(Debug)]
@@ -21,16 +21,14 @@ pub struct LineCacheEntry {
 #[derive(Debug, Clone)]
 pub struct LineCache {
     game_db: SessionDb,
-    game_name: String,
-    config: Arc<TtsSystemConfig>
+    line_cache_dir: PathBuf,
 }
 
 impl LineCache {
-    pub fn new(game_name: String, config: Arc<TtsSystemConfig>, game_db: SessionDb) -> Self {
+    pub fn new(line_cache_dir: PathBuf, game_db: SessionDb) -> Self {
         Self {
             game_db,
-            game_name,
-            config,
+            line_cache_dir,
         }
     }
 
@@ -128,10 +126,6 @@ impl LineCache {
 
     /// Returns the path to the directory containing all spoken dialogue by the given [VoiceReference]
     pub fn lines_voice_path(&self, voice: &VoiceReference) -> PathBuf {
-        self.line_cache_path().join(&voice.name)
-    }
-
-    fn line_cache_path(&self) -> PathBuf {
-        self.config.game_lines_cache(&self.game_name)
+        self.line_cache_dir.join(&voice.name)
     }
 }

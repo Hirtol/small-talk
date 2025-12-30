@@ -14,7 +14,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::VecDeque;
 use eyre::OptionExt;
-use st_system::audio::playback::{PlaybackSettings, PlaybackVoiceLine};
+use st_audio::playback::{PlaybackSettings, PlaybackVoiceLine};
 
 pub fn config() -> ApiRouter<AppState> {
     ApiRouter::new().nest(
@@ -96,8 +96,7 @@ pub async fn tts_playback_start(
 ) -> ApiResult<()> {
     let session_handle = state.system.get_or_start_session(&game_name.id).await?;
     session_handle
-        .playback
-        .start(
+        .playback_start(
             requests
                 .into_iter()
                 .map(|api| PlaybackVoiceLine {
@@ -125,8 +124,7 @@ pub async fn tts_set_speed(
 ) -> ApiResult<()> {
     let session_handle = state.system.get_or_start_session(&game_name.id).await?;
     session_handle
-        .playback
-        .set_speed(
+        .playback_set_speed(
             new_speed.speed.ok_or_eyre("No speed defined")?,
         )
         .await?;
@@ -142,7 +140,7 @@ fn tts_set_speed_request_docs(op: TransformOperation) -> TransformOperation {
 #[tracing::instrument(skip_all)]
 pub async fn tts_playback_stop(state: State<AppState>, Path(game_name): Path<Session>) -> ApiResult<()> {
     let session_handle = state.system.get_or_start_session(&game_name.id).await?;
-    session_handle.playback.stop().await?;
+    session_handle.playback_stop().await?;
 
     Ok(())
 }

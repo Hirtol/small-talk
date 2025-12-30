@@ -1,4 +1,4 @@
-use crate::voice_manager::VoiceReference;
+use st_data::voice::VoiceReference;
 use eyre::Context;
 use sea_orm::{sea_query::StringLen, ActiveEnum, ColumnTrait, DeriveActiveEnum, EnumIter};
 use sea_query::{Condition, IntoCondition};
@@ -9,13 +9,14 @@ use sqlx::{
 use st_db::DatabasePool;
 use std::{num::NonZeroU32, path::PathBuf, time::Duration};
 
-pub use st_db::entity::*;
 use crate::VoiceLine;
+pub use st_db::entity::*;
 
 pub type SessionDb = DatabasePool;
 
 pub fn lines_table_voice_line_condition(line: &str, voice: &VoiceReference) -> Condition {
-    voice_lines::Column::DialogueText.eq(line)
+    voice_lines::Column::DialogueText
+        .eq(line)
         .into_condition()
         .add(lines_table_voice_reference_condition(voice))
 }
@@ -53,6 +54,24 @@ pub enum DatabaseGender {
 impl DatabaseGender {
     pub fn to_string(&self) -> String {
         self.to_value()
+    }
+}
+
+impl From<DatabaseGender> for st_data::Gender {
+    fn from(value: DatabaseGender) -> Self {
+        match value {
+            DatabaseGender::Male => st_data::Gender::Male,
+            DatabaseGender::Female => st_data::Gender::Female,
+        }
+    }
+}
+
+impl From<st_data::Gender> for DatabaseGender {
+    fn from(value: st_data::Gender) -> Self {
+        match value {
+            st_data::Gender::Male => DatabaseGender::Male,
+            st_data::Gender::Female => DatabaseGender::Female,
+        }
     }
 }
 

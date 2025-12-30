@@ -13,12 +13,11 @@ use crate::session::GameSessionHandle;
 use crate::tts_backends::TtsCoordinator;
 use crate::voice_manager::VoiceManager;
 
-pub use crate::data::*;
+pub use st_data::*;
 use crate::emotion::EmotionBackend;
 
 pub mod tts_backends;
 pub mod rvc_backends;
-pub mod data;
 pub mod session;
 pub mod voice_manager;
 pub mod utils;
@@ -26,8 +25,6 @@ pub mod config;
 pub mod timeout;
 pub mod emotion;
 pub mod error;
-
-pub mod audio;
 
 pub type TtsSystemHandle = Arc<TtsSystem>;
 

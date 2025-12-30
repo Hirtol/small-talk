@@ -24,14 +24,17 @@ futures-lite = "2.6.0"
 reqwest = { version = "0.12.9", features = ["json", "multipart"] }
 url = { version = "2.5.4", features = ["serde"] }
 
-schemars = { version = "0.8.10", features = [] }
+schemars.workspace = true
+
+st_data = { path = "../st_data" }
+st_audio = { path = "../st_audio" }
 
 chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 
 # Persistence
-st_db = { path = "../st_db"}
+st_db = { path = "../st_db" }
 sqlx = "0.8.5"
 sea-orm.workspace = true
 sea-query = { workspace = true }
@@ -48,9 +51,7 @@ pathdiff = "0.2.3"
 
 # Conf
 platform-dirs = "0.3"
-toml = "0.8"
 
-# rodio for playback!
 kira = { version = "0.10.2", features = ["ogg"] }
 wavers.workspace = true
 ebur128 = "0.1.10"
@@ -58,7 +59,7 @@ vorbis_rs = "0.5.5"
 biquad = "0.4.0"
 
 # ML
-st_ml = {path = "../st_ml", features = ["cuda"]}
+st_ml = { path = "../st_ml", features = ["cuda"] }
 bollard = "0.18.1"
 process-wrap = { version = "8.2", features = ["tokio1"] }
 

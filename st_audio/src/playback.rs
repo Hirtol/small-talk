@@ -1,13 +1,3 @@
-use crate::{
-    audio::{
-        scale_tempo::{RefInterlacedSamples, ScaleTempo},
-        AudioData,
-    }, data::TtsModel,
-    session::{GameSessionHandle, GameTts},
-    voice_manager::VoiceManager,
-    TtsResponse,
-    VoiceLine,
-};
 use eyre::{ContextCompat, OptionExt};
 use futures::{future::BoxFuture, FutureExt};
 use kira::{
@@ -30,6 +20,12 @@ use std::{
     time::Duration,
 };
 use tokio::sync::broadcast;
+use st_data::{TtsResponse, VoiceLine};
+use crate::scale_tempo::{ScaleTempo, RefInterlacedSamples};
+
+pub trait VoiceLineDataSource: Send + Sync + 'static {
+    fn request_tts_data(&self, line: VoiceLine) -> impl Future<Output=eyre::Result<Arc<TtsResponse>>> + Send;
+}
 
 #[derive(Clone)]
 pub struct PlaybackEngineHandle {
@@ -38,13 +34,13 @@ pub struct PlaybackEngineHandle {
 
 impl PlaybackEngineHandle {
     /// Start a new playback engine
-    pub async fn new(session: Weak<GameTts>) -> eyre::Result<PlaybackEngineHandle> {
+    pub async fn new<T: VoiceLineDataSource>(data_source: Arc<T>) -> eyre::Result<PlaybackEngineHandle> {
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let audio_manager = kira::AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
 
         let engine = PlaybackEngine {
             audio_manager,
-            session_handle: session,
+            data_source,
             recv,
             current_queue: Default::default(),
             scale_tempo: create_scale_tempo(44_100),
@@ -104,8 +100,8 @@ pub enum PlaybackMessage {
     ChangeSpeed(f64),
 }
 
-pub struct PlaybackEngine {
-    session_handle: Weak<GameTts>,
+pub struct PlaybackEngine<T> {
+    data_source: Arc<T>,
 
     recv: tokio::sync::mpsc::Receiver<PlaybackMessage>,
 
@@ -116,14 +112,14 @@ pub struct PlaybackEngine {
     current_queue: VecDeque<PlaybackVoiceLine>,
 }
 
-impl PlaybackEngine {
+impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
     #[tracing::instrument(name = "run_playback", skip(self))]
     pub async fn run(mut self) -> eyre::Result<()> {
         // There is no callback/future we can use to detect a finished line, so we'll just have to poll it.
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
             let one_shot_future: futures::future::OptionFuture<_> = match &mut self.state {
-                PlaybackEngineState::Waiting(state) => Some(&mut state.current_request),
+                PlaybackEngineState::Waiting(state) => Some(&mut state.current_future),
                 _ => None,
             }
             .into();
@@ -162,21 +158,10 @@ impl PlaybackEngine {
                 // If we start a new line set we first clear out the old one
                 self.state = PlaybackEngineState::Idle;
                 self.current_queue = lines;
-                let session = self.session()?;
 
                 // Actually request our first voice line
                 if let Some(request) = self.current_queue.pop_front() {
-                    self.start_playback_request(request, session.clone()).await?;
-                }
-                // Add the items to a generation queue so that playbacks after the current one are quick
-                if !self.current_queue.is_empty() {
-                    session
-                        .add_all_to_queue(self.current_queue.iter().map(|l| l.line.clone()).collect())
-                        .await?;
-                    // As we're preemptively sending these off we should ensure we don't request _another_ regeneration when actually playing this line.
-                    self.current_queue
-                        .iter_mut()
-                        .for_each(|l| l.line.force_generate = false);
+                    self.start_playback_request(request, self.data_source.clone()).await?;
                 }
             }
             PlaybackMessage::ChangeSpeed(new_speed) => {
@@ -258,7 +243,7 @@ impl PlaybackEngine {
 
         if has_stopped && !matches!(self.state, PlaybackEngineState::Waiting(_)) {
             if let Some(request) = self.current_queue.pop_front() {
-                self.start_playback_request(request, self.session()?).await?;
+                self.start_playback_request(request, self.data_source.clone()).await?;
             }
         }
 
@@ -266,28 +251,14 @@ impl PlaybackEngine {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn start_playback_request(&mut self, request: PlaybackVoiceLine, session: Arc<GameTts>) -> eyre::Result<()> {
-        let (snd, rcv) = tokio::sync::oneshot::channel();
-
-        tokio::task::spawn(async move {
-            if let Err(e) = session.request_tts_with_channel(request.line, snd).await {
-                tracing::error!(?e, "Failed to request TTS for playback");
-            }
-        });
-
+    async fn start_playback_request(&mut self, request: PlaybackVoiceLine, data_source: Arc<T>) -> eyre::Result<()> {
         let new_state = PlaybackEngineWaitingState {
             current_settings: request.playback.unwrap_or_default(),
-            current_request: rcv,
+            current_future: async move { data_source.request_tts_data(request.line).await }.boxed(),
         };
         self.state = PlaybackEngineState::Waiting(new_state);
 
         Ok(())
-    }
-
-    fn session(&self) -> eyre::Result<Arc<GameTts>> {
-        self.session_handle
-            .upgrade()
-            .context("Parent session is no longer available")
     }
 }
 
@@ -308,7 +279,6 @@ fn process_speed_change_data(scale_tempo: &mut ScaleTempo, mut data: StaticSound
     }
 }
 
-#[derive(Debug)]
 enum PlaybackEngineState {
     Idle,
     Waiting(PlaybackEngineWaitingState),
@@ -331,11 +301,10 @@ impl PlaybackEngineState {
     }
 }
 
-#[derive(Debug)]
 struct PlaybackEngineWaitingState {
     current_settings: PlaybackSettings,
 
-    current_request: tokio::sync::oneshot::Receiver<Arc<TtsResponse>>,
+    current_future: BoxFuture<'static, eyre::Result<Arc<TtsResponse>>>
 }
 
 #[derive(Debug)]

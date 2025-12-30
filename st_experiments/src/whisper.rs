@@ -2,7 +2,7 @@ use std::{collections::HashMap, ffi::c_int, path::Path, time::Instant};
 
 use wavers::Wav;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperError, WhisperState};
-use crate::audio::trim_silence;
+use st_audio::trim_silence;
 
 pub fn main() -> eyre::Result<()> {
     let mut reader: Wav<f32> = wavers::Wav::from_path("Anger_0.wav")?;

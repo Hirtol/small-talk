@@ -1,6 +1,6 @@
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use crate::audio::AudioData;
+use st_audio::AudioData;
 use crate::timeout::{DroppableState, GcCell};
 use crate::tts_backends::{BackendTtsRequest, BackendTtsResponse};
 

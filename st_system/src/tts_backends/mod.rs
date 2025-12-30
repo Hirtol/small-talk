@@ -1,6 +1,4 @@
 use crate::{
-    audio::audio_data::AudioData,
-    data::TtsModel,
     error::TtsError,
     timeout::DroppableState,
     tts_backends::alltalk::local::LocalAllTalkHandle,
@@ -12,7 +10,8 @@ use std::{ops::DerefMut, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use echo_tts::EchoTtsHandle;
 use indextts::IndexTtsHandle;
-
+use st_audio::AudioData;
+use st_data::TtsModel;
 pub mod docker_backend;
 pub mod alltalk;
 pub mod echo_tts;

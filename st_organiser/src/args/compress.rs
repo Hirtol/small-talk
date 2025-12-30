@@ -8,9 +8,10 @@ use st_system::{
         linecache::{LineCache, LineCacheEntry},
         GameData,
     },
-    voice_manager::{VoiceManager, VoiceReference},
+    voice_manager::{VoiceManager},
 };
 use std::sync::Arc;
+use st_data::voice::VoiceReference;
 
 #[derive(clap::Args, Debug)]
 pub struct CompressCommand {
@@ -30,8 +31,7 @@ impl CompressCommand {
         let lines_backup = game_dir.join("lines_wav_backup");
         let (game_data, db) = GameData::create_or_load_from_file(&self.game_name, &config.dirs).await?;
         let line_cache = Arc::new(LineCache::new(
-            self.game_name.to_string(),
-            config.dirs.clone(),
+            config.dirs.game_lines_cache(&self.game_name),
             db.clone(),
         ));
         let shared_data = st_system::session::GameSharedData {
@@ -92,7 +92,7 @@ impl CompressCommand {
                     }
 
                     let mut wav_file = wavers::Wav::<f32>::from_path(&wav_path)?;
-                    let audio_data = st_system::audio::audio_data::AudioData::new(&mut wav_file)?;
+                    let audio_data = st_audio::audio_data::AudioData::new(&mut wav_file)?;
 
                     audio_data.write_to_ogg_vorbis(&ogg_path, 0.6)?;
 

@@ -18,3 +18,5 @@ tracing.workspace = true
 uniffi = { version = "0.29", features = ["cli", "tokio"] }
 st_system = { path = "../st_system" }
 st_http = { path = "../st_http" }
+st_data = { path = "../st_data" }
+st_audio = { path = "../st_audio" }

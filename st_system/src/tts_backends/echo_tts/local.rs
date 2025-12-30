@@ -1,5 +1,4 @@
 use crate::{
-    audio::AudioData,
     timeout::DroppableState,
     tts_backends::{
         docker_backend::{DockerTemporaryState, DockerTtsCreateConfig},
@@ -10,6 +9,7 @@ use crate::{
         generic_backend::TtsApi,
     },
 };
+use st_audio::AudioData;
 const ECHO_TTS_DOCKER_PORT: u16 = 8000;
 const ECHO_TTS_DOCKER_IMAGE: &str = "hirtol/echo-tts:latest";
 const ECHO_TTS_CONTAINER_NAME: &str = "small-talk-echo-tts";

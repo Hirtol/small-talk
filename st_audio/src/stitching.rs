@@ -1,4 +1,4 @@
-use crate::audio::AudioData;
+use crate::AudioData;
 use std::time::Duration;
 
 /// Stitch with fixed silent gaps (gap_ms) between chunks (no crossfade).

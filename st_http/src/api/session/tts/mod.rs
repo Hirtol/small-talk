@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub use routes::config;
 use st_system::{PostProcessing, RvcModel, RvcOptions, TtsVoice, VoiceLine};
-use st_system::data::TtsModel;
+use st_data::TtsModel;
 
 pub mod routes;
 

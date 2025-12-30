@@ -43,21 +43,20 @@ impl StGameSessionFfi {
 
     pub async fn tts_playback_start(&self, requests: Vec<PlaybackVoiceLine>) -> crate::Result<()> {
         self.handle
-            .playback
-            .start(requests.into_iter().map(|i| i.into()).collect())
+            .playback_start(requests.into_iter().map(|i| i.into()).collect())
             .await?;
 
         Ok(())
     }
 
     pub async fn tts_playback_speed(&self, speed: f64) -> crate::Result<()> {
-        self.handle.playback.set_speed(speed).await?;
+        self.handle.playback_set_speed(speed).await?;
 
         Ok(())
     }
 
     pub async fn tts_playback_stop(&self) -> crate::Result<()> {
-        self.handle.playback.stop().await?;
+        self.handle.playback_stop().await?;
         Ok(())
     }
 

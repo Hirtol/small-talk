@@ -1,11 +1,10 @@
 use crate::{
-    data::TtsModel, emotion::EmotionBackend, error::GameSessionError,
+    emotion::EmotionBackend, error::GameSessionError,
     rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
     session::{
         db, db::DbEnumHelper, linecache::LineCacheEntry, order_channel::OrderedReceiver, GameResult, GameSharedData,
     },
     tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
-    voice_manager::VoiceReference,
     PostProcessing,
     TtsResponse,
     TtsVoice,
@@ -19,8 +18,10 @@ use sea_orm::{ActiveModelTrait, IntoActiveValue};
 use st_db::{DbId, WriteConnection, WriteTransaction};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
 use tracing::Instrument;
-use crate::audio::postprocessing;
-use crate::audio::audio_data::AudioData;
+use st_audio::postprocessing;
+use st_audio::audio_data::AudioData;
+use st_data::TtsModel;
+use st_data::voice::VoiceReference;
 use crate::session::metadata::VoicelineMetadata;
 
 pub type SingleRequest = (

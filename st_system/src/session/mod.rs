@@ -1,12 +1,9 @@
 use crate::{
-    config::TtsSystemConfig, data::TtsModel, emotion::EmotionBackend, error::GameSessionError, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult},
-    session::{
+    config::TtsSystemConfig, emotion::EmotionBackend, error::GameSessionError, rvc_backends::{BackendRvcRequest, RvcCoordinator, RvcResult}, session::{
         db::{DatabaseGender, DbEnumHelper, SessionDb},
         linecache::LineCacheEntry,
         queue_actor::VoiceLineRequest,
-    },
-    tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult},
-    voice_manager::{FsVoiceData, VoiceLocation, VoiceManager, VoiceReference},
+    }, tts_backends::{BackendTtsRequest, BackendTtsResponse, TtsCoordinator, TtsResult}, voice_manager::{FsVoiceData, VoiceManager},
     CharacterName,
     CharacterVoice,
     Gender,
@@ -29,6 +26,11 @@ use sea_orm::{
 };
 use sea_query::OnConflict;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use st_audio::{
+    audio_data::AudioData,
+    playback::{PlaybackEngineHandle, PlaybackVoiceLine, VoiceLineDataSource},
+};
+use st_data::TtsModel;
 use st_db::{ReadConnection, SelectExt, WriteConnection, WriteTransaction};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -39,8 +41,7 @@ use std::{
 };
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
 use tracing::log;
-use crate::audio::playback::PlaybackEngineHandle;
-use crate::audio::audio_data::AudioData;
+use st_data::voice::{VoiceLocation, VoiceReference};
 
 const CONFIG_NAME: &str = "config.json";
 const DB_NAME: &str = "database.db";
@@ -51,13 +52,13 @@ type CharacterRef = db::characters::Model;
 
 pub mod db;
 pub mod linecache;
+mod metadata;
 mod order_channel;
 mod queue_actor;
-mod metadata;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {
-    pub playback: PlaybackEngineHandle,
+    playback: PlaybackEngineHandle,
     game_tts: Arc<GameTts>,
     voice_man: Arc<VoiceManager>,
 }
@@ -75,7 +76,7 @@ impl GameSessionHandle {
         tracing::info!("Starting: {}", game_name);
 
         let (game_data, db) = GameData::create_or_load_from_file(game_name, &config).await?;
-        let line_cache = Arc::new(LineCache::new(game_name.to_string(), config.clone(), db.clone()));
+        let line_cache = Arc::new(LineCache::new(config.game_lines_cache(&game_name), db.clone()));
 
         let (q_send, q_recv) = order_channel::ordered_channel();
         let (p_send, p_recv) = order_channel::ordered_channel();
@@ -110,7 +111,7 @@ impl GameSessionHandle {
             priority: p_send,
         });
 
-        let playback = PlaybackEngineHandle::new(Arc::downgrade(&game_tts)).await?;
+        let playback = PlaybackEngineHandle::new(game_tts.clone()).await?;
 
         Ok(Self {
             playback,
@@ -142,10 +143,7 @@ impl GameSessionHandle {
         let to_update = ActiveModel {
             id: Default::default(),
             character_name: character.name.into_active_value(),
-            character_gender: character
-                .gender
-                .unwrap_or(Gender::default())
-                .to_db()
+            character_gender: Into::<DatabaseGender>::into(character.gender.unwrap_or(Gender::default()))
                 .to_value()
                 .into_active_value(),
             voice_name: voice.name.into_active_value(),
@@ -207,6 +205,28 @@ impl GameSessionHandle {
         Ok(voice_ref)
     }
 
+    pub async fn playback_start(&self, mut lines: VecDeque<PlaybackVoiceLine>) -> eyre::Result<()> {
+        // Add the items to a generation queue so that playbacks after the current one are quick
+        if !lines.is_empty() {
+            self.add_all_to_queue(lines.iter().map(|l| l.line.clone()).collect())
+                .await?;
+            // As we're preemptively sending these off we should ensure we don't request _another_ regeneration when actually playing this line.
+            lines.iter_mut().for_each(|l| l.line.force_generate = false);
+        }
+
+        self.playback.start(lines).await?;
+
+        Ok(())
+    }
+
+    pub async fn playback_set_speed(&self, speed: f64) -> eyre::Result<()> {
+        self.playback.set_speed(speed).await
+    }
+
+    pub async fn playback_stop(&self) -> eyre::Result<()> {
+        self.playback.stop().await
+    }
+
     /// Will add the given items onto the queue for TTS generation.
     ///
     /// These items will be prioritised over previous queue items
@@ -220,11 +240,7 @@ impl GameSessionHandle {
     /// This will be done even if this future is _not_ dropped.
     #[tracing::instrument(skip(self))]
     pub async fn request_tts(&self, request: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
-        let (snd, rcv) = tokio::sync::oneshot::channel();
-
-        self.game_tts.request_tts_with_channel(request, snd).await?;
-
-        Ok(rcv.await?)
+        self.game_tts.request_tts_data(request).await
     }
 }
 
@@ -233,6 +249,16 @@ pub struct GameTts {
     pub data: Arc<GameSharedData>,
     queue: OrderedSender<SingleRequest>,
     priority: OrderedSender<SingleRequest>,
+}
+
+impl VoiceLineDataSource for GameTts {
+    async fn request_tts_data(&self, line: VoiceLine) -> eyre::Result<Arc<TtsResponse>> {
+        let (snd, rcv) = tokio::sync::oneshot::channel();
+
+        self.request_tts_with_channel(line, snd).await?;
+
+        Ok(rcv.await?)
+    }
 }
 
 impl GameTts {
@@ -291,7 +317,9 @@ impl GameTts {
         send: tokio::sync::oneshot::Sender<Arc<TtsResponse>>,
     ) -> eyre::Result<()> {
         let tx = self.data.game_db.writer().begin().await?;
-        self.data.try_add_new_dialogue(&tx, std::slice::from_ref(&request)).await?;
+        self.data
+            .try_add_new_dialogue(&tx, std::slice::from_ref(&request))
+            .await?;
 
         let existing_line = if request.force_generate {
             let cache_entry = self.data.voice_line_to_cache(&tx, &request).await?;
@@ -310,7 +338,10 @@ impl GameTts {
             // Otherwise, send a priority request to our queue, clear any previous urgent requests and return them
             // to the lower priority queue.
             let vl_request = VoiceLineRequest {
-                speaker: self.data.extract_voice_reference(self.data.game_db.writer(), &request).await?,
+                speaker: self
+                    .data
+                    .extract_voice_reference(self.data.game_db.writer(), &request)
+                    .await?,
                 text: request.line,
                 model: request.model,
                 post: request.post,
@@ -442,7 +473,14 @@ impl GameSharedData {
     ) -> eyre::Result<VoiceReference> {
         Ok(match &line.person {
             TtsVoice::ForceVoice(forced) => forced.clone(),
-            TtsVoice::CharacterVoice(character) => self.map_character(tx, character).await?.into(),
+            TtsVoice::CharacterVoice(character) => {
+                let char_ref = self.map_character(tx, character).await?;
+
+                VoiceReference {
+                    name: char_ref.voice_name,
+                    location: VoiceLocation::from(char_ref.voice_location),
+                }
+            },
         })
     }
 
@@ -498,7 +536,7 @@ impl GameSharedData {
         // First check if the character exists in our database
         let existing_voice = db::characters::Entity::find()
             .filter(db::characters::Column::CharacterName.eq(char_name))
-            .filter(db::characters::Column::CharacterGender.eq(char_gender.to_db()))
+            .filter(db::characters::Column::CharacterGender.eq(Into::<DatabaseGender>::into(char_gender)))
             .one(tx)
             .await?;
 
@@ -579,7 +617,7 @@ impl GameSharedData {
             let to_insert = db::characters::ActiveModel {
                 id: Default::default(),
                 character_name: char_name.clone().into_active_value(),
-                character_gender: char_gender.to_db().to_value().into_active_value(),
+                character_gender: Into::<DatabaseGender>::into(char_gender).to_value().into_active_value(),
                 voice_name: voice_to_use.name.into_active_value(),
                 voice_location: voice_to_use.location.to_string_value().into_active_value(),
             };

@@ -22,6 +22,9 @@ walkdir = "2.4"
 path_abs = { version = "0.5", default-features = false }
 
 st_db = { path = "../st_db"}
+st_data = { path = "../st_data" }
+st_audio = { path = "../st_audio" }
+
 sea-orm.workspace = true
 sqlx.workspace = true
 
