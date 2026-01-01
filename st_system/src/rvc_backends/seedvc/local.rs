@@ -9,6 +9,7 @@ use tokio::{
     process::{Child, Command},
 };
 use tokio::time::error::Elapsed;
+use tokio_util::sync::CancellationToken;
 use crate::error::RvcError;
 use crate::rvc_backends::{BackendRvcRequest, BackendRvcResponse, RvcResult};
 use crate::rvc_backends::seedvc::api::SeedVcApiConfig;
@@ -40,7 +41,7 @@ pub enum SeedMessage {
 
 impl LocalSeedHandle {
     /// Create and start a new [LocalSeedVc] actor, returning the cloneable handle to the actor in the process.
-    pub fn new(config: LocalSeedVcConfig) -> eyre::Result<Self> {
+    pub fn new(config: LocalSeedVcConfig, token: CancellationToken) -> eyre::Result<Self> {
         // Small amount before we exert back-pressure
         let (send, recv) = tokio::sync::mpsc::unbounded_channel();
         let actor = LocalSeedVc {
@@ -50,7 +51,7 @@ impl LocalSeedHandle {
         };
 
         tokio::task::spawn(async move {
-            if let Err(e) = actor.run().await {
+            if let Err(e) = actor.run(token).await {
                 tracing::error!("LocalSeedVc stopped with error: {e}");
             }
         });
@@ -92,15 +93,16 @@ impl LocalSeedVc {
     /// Start the actor, this future should be `tokio::spawn`ed.
     ///
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
-    #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> Result<(), RvcError> {
+    #[tracing::instrument(skip_all)]
+    pub async fn run(mut self, token: CancellationToken) -> Result<(), RvcError> {
         loop {
             tokio::select! {
-                msg = self.recv.recv() => {
-                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
-                    // on our timeout
-                    match msg {
-                        Some(msg) => match self.handle_message(msg).await {
+                _ = token.cancelled() => {
+                    tracing::trace!("Stopping SeedVc actor due to cancellation");
+                    break;
+                }
+                Some(msg) = self.recv.recv() => {
+                    match self.handle_message(msg).await {
                             Ok(_) => {}
                             Err(RvcError::Timeout) => {
                                 tracing::warn!("SeedVc timed out. Assuming failed state, restarting");
@@ -108,13 +110,7 @@ impl LocalSeedVc {
                                 self.state.kill_state().await?;
                             }
                             e => return e
-                        },
-                        None => {
-                            self.state.kill_state().await?;
-                            tracing::trace!("Stopping LocalSeedVc actor as channel was closed");
-                            break
-                        },
-                    }
+                        }
                 },
                 _ = self.state.timeout_future() => {
                     tracing::debug!("Timeout expired, dropping local SeedVc state");
@@ -125,6 +121,8 @@ impl LocalSeedVc {
                 else => break,
             }
         }
+
+        self.state.kill_state().await?;
 
         Ok(())
     }
@@ -153,6 +151,7 @@ impl LocalSeedVc {
                 tracing::trace!(?took, "Finished handling of RVC request");
             }
         }
+
         Ok(())
     }
 }

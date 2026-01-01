@@ -70,7 +70,7 @@ impl Application {
     ///
     /// * `quitter` - A way to inform the spawned runtime to shut down. Especially useful for tests
     /// where we won't provide a signal for shutdown.
-    pub async fn run(self, quitter: Arc<tokio::sync::Notify>) -> eyre::Result<()> {
+    pub async fn run(self) -> eyre::Result<()> {
         tracing::info!("Setup complete, starting server...");
 
         let app = construct_server(self.config.clone(), self.small_talk.tts_system.clone()).await?;
@@ -80,11 +80,10 @@ impl Application {
         let server = axum::serve(self.tcp, app.into_make_service());
 
         let result = tokio::select! {
-            _ = quitter.notified() => Ok(()),
+            _ = self.small_talk.root_cancel.cancelled() => Ok(()),
             res = tokio::signal::ctrl_c() => {
                 tracing::trace!("Received CTRL-C notification, exiting...");
-                // Should notify all dependant sub-processes.
-                quitter.notify_waiters();
+
                 res.map_err(|e| eyre::eyre!(e))
             },
             res = server => res.map_err(|e| eyre::eyre!(e))

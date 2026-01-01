@@ -7,35 +7,18 @@ readme.workspace = true
 repository.workspace = true
 
 [dependencies]
-color-eyre = "0.6"
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-console-subscriber = { version = "0.4.1", optional = true }
-venator = { version = "1.1.0", optional = true }
-
 eyre.workspace = true
-error_set.workspace = true
-itertools = { workspace = true }
 
 tokio = { workspace = true, features = ["full"] }
-futures.workspace = true
+tokio-util.workspace = true
 
-axum = { version = "0.8.1", features = ["ws", "tower-log", "multipart", "macros"] }
-axum-extra = { version = "0.10.0", features = [] }
-tower = { version = "0.5.1", features = ["timeout", "limit", "load-shed"] }
-tower-http = { version = "0.6.1", features = ["full"] }
 url = { version = "2.5.4", features = ["serde"] }
 
-aide = { version = "0.14.1", features = ["axum", "macros", "scalar", "axum-json", "axum-query"] }
-schemars = { version = "0.8.10", features = [] }
-
-chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive", "rc"] }
-serde_json = { workspace = true }
 
 # Conf
 config = { version = "0.15.6", features = ["toml"] }
-dotenv = "0.15"
 platform-dirs = "0.3"
 toml = "0.8"
 

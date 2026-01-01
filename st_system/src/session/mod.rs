@@ -40,6 +40,7 @@ use std::{
     time::SystemTime,
 };
 use tokio::sync::{broadcast, broadcast::error::RecvError, mpsc::error::TrySendError, Mutex, Notify};
+use tokio_util::sync::CancellationToken;
 use tracing::log;
 use st_data::voice::{VoiceLocation, VoiceReference};
 use crate::emotion::EmotionCoordinator;
@@ -59,13 +60,14 @@ mod queue_actor;
 
 #[derive(Clone)]
 pub struct GameSessionHandle {
+    pub token: CancellationToken,
     playback: PlaybackEngineHandle,
     game_tts: Arc<GameTts>,
     voice_man: Arc<VoiceManager>,
 }
 
 impl GameSessionHandle {
-    #[tracing::instrument(skip(config, tts, rvc, emotion, voice_man))]
+    #[tracing::instrument(skip(config, tts, rvc, emotion, voice_man, token))]
     pub async fn new(
         game_name: &str,
         voice_man: Arc<VoiceManager>,
@@ -73,6 +75,7 @@ impl GameSessionHandle {
         rvc: RvcCoordinator,
         emotion: EmotionCoordinator,
         config: Arc<TtsSystemConfig>,
+        token: CancellationToken
     ) -> eyre::Result<Self> {
         tracing::info!("Starting: {}", game_name);
 
@@ -100,8 +103,9 @@ impl GameSessionHandle {
             generations_count: 0,
         };
 
+        let queue_token = token.clone();
         tokio::task::spawn(async move {
-            if let Err(e) = queue_actor.run().await {
+            if let Err(e) = queue_actor.run(queue_token).await {
                 tracing::error!("GameSessionQueue stopped with error: {e:?}");
             }
         });
@@ -112,12 +116,13 @@ impl GameSessionHandle {
             priority: p_send,
         });
 
-        let playback = PlaybackEngineHandle::new(game_tts.clone()).await?;
+        let playback = PlaybackEngineHandle::new(game_tts.clone(), token.clone()).await?;
 
         Ok(Self {
             playback,
             game_tts,
             voice_man,
+            token
         })
     }
 

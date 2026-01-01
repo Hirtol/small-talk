@@ -17,6 +17,7 @@ use rand::prelude::IteratorRandom;
 use sea_orm::{ActiveModelTrait, IntoActiveValue};
 use st_db::{DbId, WriteConnection, WriteTransaction};
 use std::{format, path::PathBuf, sync::Arc, time::SystemTime, unimplemented, vec};
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use st_audio::postprocessing;
 use st_audio::audio_data::AudioData;
@@ -61,8 +62,8 @@ pub(super) struct GameQueueActor {
 }
 
 impl GameQueueActor {
-    #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> eyre::Result<()> {
+    #[tracing::instrument(skip_all)]
+    pub async fn run(mut self, token: CancellationToken) -> eyre::Result<()> {
         // Ignore failed reads.
         let _ = self.read_queue().await;
 
@@ -70,6 +71,9 @@ impl GameQueueActor {
             tokio::select! {
                 biased;
 
+                _ = token.cancelled() => {
+                    break;
+                }
                 Some(next_item) = self.priority.recv() => {
                     self.handle_request_err(next_item).await?
                 },

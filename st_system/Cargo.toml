@@ -15,7 +15,8 @@ strsim = "0.11.1"
 bytemuck = "1.21.0"
 regex = { version = "1.12", features = ["pattern"] }
 
-tokio = { version = "1", features = [] }
+tokio.workspace = true
+tokio-util.workspace = true
 futures = { version = "0.3" }
 futures-lite = "2.6.0"
 

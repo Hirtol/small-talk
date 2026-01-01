@@ -18,6 +18,8 @@ schemars.workspace = true
 
 st_data = { path = "../st_data" }
 
+tokio-util.workspace = true
+
 # Audio
 kira = { version = "0.11.0", features = ["ogg"] }
 wavers.workspace = true

@@ -1,13 +1,20 @@
-use crate::tts_backends::{echo_tts::api::{EchoTtsAPI}, BackendTtsRequest, BackendTtsResponse, TtsResult};
-use std::time::Duration;
+use crate::{
+    error::TtsError,
+    timeout::GcCell,
+    tts_backends::{
+        chunking::Chunk, echo_tts::{
+            api::{EchoTtsAPI, EchoTtsRequest},
+            text_processing::TextProcessor,
+        }, generic_backend::{ActiveTtsState, ActiveTtsStateConfig, ReadyTtsApi, TtsApi, TtsBackendMessage},
+        BackendTtsRequest,
+        BackendTtsResponse,
+        TtsResult,
+    },
+};
 use eyre::{ContextCompat, WrapErr};
 use local::LocalEchoTtsState;
-use crate::error::TtsError;
-use crate::timeout::GcCell;
-use crate::tts_backends::chunking::Chunk;
-use crate::tts_backends::echo_tts::api::EchoTtsRequest;
-use crate::tts_backends::echo_tts::text_processing::TextProcessor;
-use crate::tts_backends::generic_backend::{ActiveTtsState, ActiveTtsStateConfig, ReadyTtsApi, TtsApi, TtsBackendMessage};
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 type EchoTts = ReadyTtsApi<EchoTtsAPI>;
 
@@ -40,7 +47,7 @@ pub struct EchoTtsHandle {
 
 impl EchoTtsHandle {
     /// Create and start a new [EchoTtsActor] actor, returning the cloneable handle to the actor in the process.
-    pub fn new(config: EchoTtsConfig) -> eyre::Result<Self> {
+    pub fn new(config: EchoTtsConfig, token: CancellationToken) -> eyre::Result<Self> {
         let term = papaya::HashMap::from([
             ("Kenabres".to_string(), "Kenaabres".to_string()),
             ("worldwound".to_string(), "world wound".to_string()),
@@ -56,7 +63,7 @@ impl EchoTtsHandle {
         };
 
         tokio::task::spawn(async move {
-            if let Err(e) = actor.run().await {
+            if let Err(e) = actor.run(token).await {
                 tracing::error!("LocalEchoTts stopped with error: {e}");
             }
         });
@@ -88,27 +95,21 @@ struct EchoTtsActor {
 }
 
 impl EchoTtsActor {
-
     /// Start the actor, this future should be `tokio::spawn`ed.
     ///
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
-    #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> Result<(), TtsError> {
+    #[tracing::instrument(skip_all)]
+    pub async fn run(mut self, token: CancellationToken) -> Result<(), TtsError> {
         loop {
             tokio::select! {
-                msg = self.recv.recv() => {
-                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
-                    // on our timeout
-                    match msg {
-                        Some(msg) => match self.handle_message(msg).await {
+                _ = token.cancelled() => {
+                    tracing::trace!("Stopping LocalEchoTts actor due to cancellation");
+                    break;
+                }
+                Some(msg) = self.recv.recv() => {
+                    match self.handle_message(msg).await {
                             Ok(_) => {}
                             e => return e
-                        },
-                        None => {
-                            tracing::trace!("Stopping LocalEchoTts actor as channel was closed");
-                            self.state.kill_state().await?;
-                            break
-                        },
                     }
                 },
                 _ = self.state.timeout_future() => {
@@ -120,6 +121,8 @@ impl EchoTtsActor {
                 else => break,
             }
         }
+
+        self.state.kill_state().await?;
 
         Ok(())
     }
@@ -151,12 +154,15 @@ impl EchoTtsActor {
                         wav_file_bytes: voice_data.clone(),
                     };
                     tracing::trace!(?req, "Sending the following request to echo");
-                    let tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts(req)).await.context("Timeout elapsed")??;
+                    let tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts(req))
+                        .await
+                        .context("Timeout elapsed")??;
                     all_chunks.push(tts_response);
                 }
 
                 let took = now.elapsed();
-                let stitched = st_audio::stitching::stitch_with_gaps(all_chunks.into_iter(), Duration::from_millis(100))?;
+                let stitched =
+                    st_audio::stitching::stitch_with_gaps(all_chunks.into_iter(), Duration::from_millis(100))?;
 
                 let _ = response.send(BackendTtsResponse {
                     gen_time: took,
@@ -178,11 +184,10 @@ impl EchoTtsActor {
             0..50 => 130,
             50..100 => 213,
             100..250 => 416,
-            250.. => 640
+            250.. => 640,
         }
     }
 }
-
 
 mod text_processing {
     use papaya::HashMap;

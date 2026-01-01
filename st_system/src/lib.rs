@@ -7,6 +7,7 @@ use platform_dirs::AppDirs;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use crate::config::TtsSystemConfig;
 use crate::rvc_backends::RvcCoordinator;
 use crate::session::GameSessionHandle;
@@ -37,10 +38,11 @@ pub struct TtsSystem {
     tts: TtsCoordinator,
     rvc: RvcCoordinator,
     emotion: EmotionCoordinator,
+    root_cancel: CancellationToken,
 }
 
 impl TtsSystem {
-    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcCoordinator, emotion_backend: EmotionCoordinator) -> Self {
+    pub fn new(config: Arc<TtsSystemConfig>, tts_backend: TtsCoordinator, rvc_backend: RvcCoordinator, emotion_backend: EmotionCoordinator, token: CancellationToken) -> Self {
         Self {
             emotion: emotion_backend,
             config: config.clone(),
@@ -48,6 +50,7 @@ impl TtsSystem {
             voice_man: Arc::new(VoiceManager::new(config)),
             tts: tts_backend,
             rvc: rvc_backend,
+            root_cancel: token,
         }
     }
 
@@ -60,7 +63,8 @@ impl TtsSystem {
                 return Ok(game_ses.clone())
             }
         }
-        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.rvc.clone(), self.emotion.clone(), self.config.clone()).await?;
+        let session_token = self.root_cancel.child_token();
+        let new_session = GameSessionHandle::new(game, self.voice_man.clone(), self.tts.clone(), self.rvc.clone(), self.emotion.clone(), self.config.clone(), session_token).await?;
         pin.insert(game.into(), new_session.clone());
 
         Ok(new_session)
@@ -72,7 +76,11 @@ impl TtsSystem {
     #[tracing::instrument(skip(self))]
     pub async fn stop_session(&self, game: &str) -> eyre::Result<()> {
         let mut pin = self.sessions.lock().await;
-        let _ = pin.remove(game);
+        let session = pin.remove(game);
+
+        if let Some(session) = session {
+            session.token.cancel()
+        }
 
         Ok(())
     }
@@ -80,8 +88,6 @@ impl TtsSystem {
     /// Shut the entire TTS backend down.
     pub async fn shutdown(&self) -> eyre::Result<()> {
         self.sessions.lock().await.clear();
-        // TODO: Add a 'shutdown' message to the actors for proper shutdown and remove the below
-        tokio::time::sleep(Duration::from_secs(1)).await;
         Ok(())
     }
 }

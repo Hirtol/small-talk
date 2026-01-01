@@ -13,6 +13,7 @@ use crate::{
 };
 use eyre::{ContextCompat, WrapErr};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 pub mod api;
 mod local;
@@ -45,7 +46,7 @@ pub struct IndexTtsHandle {
 
 impl IndexTtsHandle {
     /// Create and start a new [IndexTtsActor] actor, returning the cloneable handle to the actor in the process.
-    pub fn new(config: IndexTtsConfig) -> eyre::Result<Self> {
+    pub fn new(config: IndexTtsConfig, token: CancellationToken) -> eyre::Result<Self> {
         let term = papaya::HashMap::from([
             ("tiefling".to_string(), "teefling".to_string()),
             ("No.".into(), "No .".into()),
@@ -60,7 +61,7 @@ impl IndexTtsHandle {
         };
 
         tokio::task::spawn(async move {
-            if let Err(e) = actor.run().await {
+            if let Err(e) = actor.run(token).await {
                 tracing::error!("LocalIndexTts stopped with error: {e}");
             }
         });
@@ -95,27 +96,22 @@ impl IndexTtsActor {
     /// Start the actor, this future should be `tokio::spawn`ed.
     ///
     /// It will automatically drop the internal state if it hasn't been accessed in a while to preserve memory.
-    #[tracing::instrument(skip(self))]
-    pub async fn run(mut self) -> Result<(), TtsError> {
+    #[tracing::instrument(skip_all)]
+    pub async fn run(mut self, token: CancellationToken) -> Result<(), TtsError> {
         loop {
             tokio::select! {
-                msg = self.recv.recv() => {
-                    // Have to pattern match here, as we want this `select!` to stop if the channel is closed, and not hang
-                    // on our timeout
-                    match msg {
-                        Some(msg) => match self.handle_message(msg).await {
+                _ = token.cancelled() => {
+                    tracing::trace!("Stopping LocalIndexTts actor due to cancellation");
+                    break;
+                }
+                Some(msg) = self.recv.recv() => {
+                    match self.handle_message(msg).await {
                             Ok(_) => {}
                             e => return e
-                        },
-                        None => {
-                            tracing::trace!("Stopping LocalIndexTts actor as channel was closed");
-                            self.state.kill_state().await?;
-                            break
-                        },
                     }
                 },
                 _ = self.state.timeout_future() => {
-                    tracing::debug!("Timeout expired, dropping local IndexTts state");
+                    tracing::debug!("Timeout expired, dropping local IndexTTS state");
                     // Drop the state, killing the sub-process
                     // Safe to do as we know that it won't be generating for us since we have exclusive access.
                     self.state.kill_state().await?
@@ -123,6 +119,8 @@ impl IndexTtsActor {
                 else => break,
             }
         }
+
+        self.state.kill_state().await?;
 
         Ok(())
     }

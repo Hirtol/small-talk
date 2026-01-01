@@ -8121,34 +8121,19 @@ dependencies = [
 name = "st_application"
 version = "0.1.0"
 dependencies = [
- "aide",
- "axum 0.8.1",
- "axum-extra",
- "chrono",
- "color-eyre",
  "config",
- "console-subscriber",
- "dotenv",
- "error_set",
  "eyre",
- "futures",
- "itertools 0.14.0",
  "platform-dirs",
- "schemars",
  "serde",
- "serde_json",
  "st_audio",
  "st_data",
  "st_ml",
  "st_system",
  "tokio",
+ "tokio-util",
  "toml 0.8.20",
- "tower 0.5.2",
- "tower-http",
  "tracing",
- "tracing-subscriber",
  "url",
- "venator",
 ]
 
 [[package]]
@@ -8165,6 +8150,7 @@ dependencies = [
  "serde",
  "st_data",
  "tokio",
+ "tokio-util",
  "tracing",
  "vorbis_rs",
  "wavers",
@@ -8349,6 +8335,7 @@ dependencies = [
  "st_ml",
  "strsim",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-test",
  "url",
@@ -8362,12 +8349,14 @@ version = "0.1.0"
 dependencies = [
  "error_set",
  "eyre",
+ "serde",
  "st_application",
  "st_audio",
  "st_data",
  "st_system",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uniffi",
 ]
 
@@ -9095,9 +9084,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.13"
+version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
+checksum = "2efa149fe76073d6e8fd97ef4f4eca7b67f599660115591483572e406e165594"
 dependencies = [
  "bytes",
  "futures-core",
@@ -9288,12 +9277,12 @@ dependencies = [
 
 [[package]]
 name = "tracing-appender"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3566e8ce28cc0a3fe42519fc80e6b4c943cc4c8cef275620eb8dac2d3d4e06cf"
+checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
 dependencies = [
  "crossbeam-channel",
- "thiserror 1.0.69",
+ "thiserror 2.0.11",
  "time",
  "tracing-subscriber",
 ]

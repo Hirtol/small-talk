@@ -22,6 +22,8 @@ async fn main() -> eyre::Result<()> {
     let notifier = get_quit_notifier();
 
     app.run(notifier).await?;
+
+    tracing::warn!("Shutdown complete");
     
     Ok(())
 }

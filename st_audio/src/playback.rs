@@ -1,6 +1,6 @@
 use crate::scale_tempo::{RefInterlacedSamples, ScaleTempo};
 use eyre::OptionExt;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture};
 use kira::{
     effect::{
         filter::{FilterBuilder, FilterMode},
@@ -16,6 +16,7 @@ use kira::{
 use st_data::{TtsResponse, VoiceLine};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 pub trait VoiceLineDataSource: Send + Sync + 'static {
     fn request_tts_data(&self, line: VoiceLine) -> impl Future<Output = eyre::Result<Arc<TtsResponse>>> + Send;
@@ -28,7 +29,7 @@ pub struct PlaybackEngineHandle {
 
 impl PlaybackEngineHandle {
     /// Start a new playback engine
-    pub async fn new<T: VoiceLineDataSource>(data_source: Arc<T>) -> eyre::Result<PlaybackEngineHandle> {
+    pub async fn new<T: VoiceLineDataSource>(data_source: Arc<T>, token: CancellationToken) -> eyre::Result<PlaybackEngineHandle> {
         let (send, recv) = tokio::sync::mpsc::channel(10);
         let audio_manager = kira::AudioManager::<DefaultBackend>::new(AudioManagerSettings::default())?;
 
@@ -44,7 +45,7 @@ impl PlaybackEngineHandle {
         // We do blocking IO in the actor, so spawn it on the thread pool.
         tokio::task::spawn_blocking(move || {
             rt.block_on(async move {
-                if let Err(e) = engine.run().await {
+                if let Err(e) = engine.run(token).await {
                     tracing::error!("PlaybackEngine stopped with error: {e}");
                 }
             })
@@ -107,8 +108,8 @@ pub struct PlaybackEngine<T> {
 }
 
 impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
-    #[tracing::instrument(name = "run_playback", skip(self))]
-    pub async fn run(mut self) -> eyre::Result<()> {
+    #[tracing::instrument(name = "run_playback", skip_all)]
+    pub async fn run(mut self, token: CancellationToken) -> eyre::Result<()> {
         // There is no callback/future we can use to detect a finished line, so we'll just have to poll it.
         let mut check_interval = tokio::time::interval(Duration::from_millis(100));
         loop {
@@ -119,6 +120,10 @@ impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
             .into();
 
             tokio::select! {
+                _ = token.cancelled() => {
+                    tracing::trace!("Stopping PlaybackEngine due to cancellation");
+                    break;
+                }
                 msg = self.recv.recv() => {
                     let Some(msg) = msg else {
                         break;
@@ -136,11 +141,12 @@ impl<T: VoiceLineDataSource + Send + Sync> PlaybackEngine<T> {
                 _ = check_interval.tick() => {
                     self.handle_queue_tick().await?;
                 }
-                else => break
+                else => {
+                    tracing::trace!("Stopping PlaybackEngine for unknown reason");
+                    break
+                }
             }
         }
-
-        tracing::trace!("Stopping PlaybackEngine for unknown reason");
 
         Ok(())
     }

@@ -50,13 +50,9 @@ pub fn save_config<T: Serialize>(app_settings: &T) -> eyre::Result<()> {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SmallTalkConfig {
     /// All directory related configs
-    #[serde(default)]
     pub dirs: Arc<TtsSystemConfig>,
-    #[serde(default)]
     pub index_tts: SubsystemConfig<st_system::tts_backends::indextts::IndexTtsConfig>,
-    #[serde(default)]
     pub echo_tts: SubsystemConfig<st_system::tts_backends::echo_tts::EchoTtsConfig>,
-    #[serde(default)]
     pub seed_vc: SubsystemConfig<RvcConfig>,
 }
 

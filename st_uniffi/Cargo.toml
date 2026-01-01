@@ -9,11 +9,17 @@ repository.workspace = true
 [lib]
 crate-type = ['cdylib']
 
+[features]
+#venator = ["dep:venator"]
+
 [dependencies]
 eyre.workspace = true
 error_set.workspace = true
 tokio.workspace = true
+serde.workspace = true
+
 tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 uniffi = { version = "0.29", features = ["cli", "tokio"] }
 st_system = { path = "../st_system" }
