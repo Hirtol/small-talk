@@ -41,5 +41,5 @@ pub fn initialise_file_log(path: String) {
         "WARN,reqwest=DEBUG,st_uniffi=TRACE,st_system=TRACE,st_http=TRACE,st_ml=TRACE,sqlx=WARN,hyper=WARN",
         path
     );
-    subscriber.init();
+    let _ = subscriber.try_init();
 }
