@@ -12,6 +12,8 @@ use st_system::{
 };
 use std::sync::Arc;
 use st_data::voice::VoiceReference;
+use tracing::Span;
+use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
 
 #[derive(clap::Args, Debug)]
 pub struct CompressCommand {
@@ -43,8 +45,18 @@ impl CompressCommand {
         };
 
         let rt = tokio::runtime::Handle::current();
+        let all_lines = line_cache.all_lines().await?;
+        let total_lines: usize = all_lines.iter().map(|(_, lines)| lines.len()).sum();
 
-        for (voice, mut lines) in line_cache.all_lines().await? {
+        let process_span = tracing::info_span!("compress_lines");
+        process_span.pb_set_style(&ProgressStyle::with_template(
+            "{wide_bar} {pos}/{len} {msg} ETA {eta_precise}",
+        )?);
+        process_span.pb_set_length(total_lines as u64);
+        process_span.pb_set_message("Compressing lines");
+        let _guard = process_span.enter();
+
+        for (voice, lines) in all_lines {
             if self
                 .filter_exclude
                 .as_ref()
@@ -85,6 +97,7 @@ impl CompressCommand {
                             ogg_path.file_name().context("impossible")?.to_string_lossy().into(),
                         ))?;
                         let _ = std::fs::rename(&wav_path, backup_dir.join(backup_wav));
+                        process_span.pb_inc(1);
                         return Ok(());
                     }
                     if !wav_path.exists() {
@@ -102,6 +115,7 @@ impl CompressCommand {
                     ))?;
 
                     std::fs::rename(&wav_path, backup_dir.join(backup_wav))?;
+                    process_span.pb_inc(1);
                     Ok::<_, eyre::Error>(())
                 })
             {

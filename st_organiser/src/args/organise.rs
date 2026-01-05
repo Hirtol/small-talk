@@ -16,6 +16,8 @@ use std::{
 use st_application::config::SharedConfig;
 use st_data::voice::VoiceLocation;
 use st_system::voice_manager::{VoiceManager, VoiceSample};
+use tracing::Span;
+use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
 
 #[derive(clap::Args, Debug)]
 pub struct OrganiseCommand {
@@ -85,6 +87,14 @@ impl OrganiseCommand {
 
         tracing::info!(total_samples_to_process, "Will process samples");
 
+        let process_span = tracing::info_span!("organise_samples");
+        process_span.pb_set_style(&ProgressStyle::with_template(
+            "{wide_bar} {pos}/{len} {msg} ETA {eta_precise}",
+        )?);
+        process_span.pb_set_length(total_samples_to_process as u64);
+        process_span.pb_set_message("Organising samples");
+        let _guard = process_span.enter();
+
         for (voice_name, samples) in queue {
             tracing::info!("Starting processing of Voice: {:?}", voice_name);
             for sample in samples {
@@ -112,6 +122,7 @@ impl OrganiseCommand {
                 };
 
                 voice_man.store_voice_samples(destination.clone(), &voice_name, vec![sam])?;
+                process_span.pb_inc(1);
             }
         }
 

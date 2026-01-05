@@ -16,6 +16,8 @@ use st_system::{PostProcessing, RvcModel, RvcOptions, TtsModel, TtsSystem, TtsVo
 use st_system::tts_backends::echo_tts::EchoTtsHandle;
 use st_system::tts_backends::indextts::IndexTtsHandle;
 use st_system::voice_manager::{VoiceManager};
+use tracing::Span;
+use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
 use crate::args::ClapTtsModel;
 
 #[derive(clap::Args, Debug)]
@@ -69,6 +71,14 @@ impl ReassignCommand {
 
         tracing::info!(todo=lines_to_redo.len(), "Regenerating lines");
 
+        let process_span = tracing::info_span!("process_line_request");
+        process_span.pb_set_style(&ProgressStyle::with_template(
+            "{wide_bar} {pos}/{len} {msg} ETA {eta_precise}",
+        )?);
+        process_span.pb_set_length(lines_to_redo.len() as u64);
+        process_span.pb_set_message("Processing lines");
+        let _guard = process_span.enter();
+
         let mut voice_lines = lines_to_redo.into_iter().map(|line| {
             VoiceLine {
                 line,
@@ -92,6 +102,8 @@ impl ReassignCommand {
                 // Retry failed ones
                 tracing::debug!(?e, "Pushing {line:?} onto retry queue");
                 voice_lines.push(line)
+            } else {
+                process_span.pb_inc(1)
             }
         }
 
