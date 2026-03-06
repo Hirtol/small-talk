@@ -46,7 +46,7 @@ wavers.workspace = true
 
 # ML
 st_ml = { path = "../st_ml", features = ["cuda"] }
-bollard = "0.19.4"
+bollard = "0.20.1"
 process-wrap = { version = "9.0.0", features = ["tokio1"] }
 
 [dev-dependencies]

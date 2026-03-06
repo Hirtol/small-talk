@@ -19,9 +19,7 @@ async fn main() -> eyre::Result<()> {
     let config = st_application::config::initialise_config()?;
     let app = Application::new(config).await?;
 
-    let notifier = get_quit_notifier();
-
-    app.run(notifier).await?;
+    app.run().await?;
 
     tracing::warn!("Shutdown complete");
     

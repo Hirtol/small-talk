@@ -1,10 +1,13 @@
-use std::collections::HashMap;
-use bollard::Docker;
-use bollard::models::{ContainerSummary, DeviceRequest, HostConfig};
-use bollard::image::CreateImageOptions;
-use bollard::container::{Config, CreateContainerOptions, ListContainersOptions};
-use futures::StreamExt;
+use bollard::{
+    config::ContainerCreateBody,
+    models::{ContainerSummary, DeviceRequest, HostConfig},
+    query_parameters::{CreateContainerOptions, CreateImageOptions, ListContainersOptions},
+    Docker
+    ,
+};
 use eyre::ContextCompat;
+use futures::StreamExt;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct DockerTtsCreateConfig {
@@ -40,7 +43,7 @@ pub async fn create_container(daemon: &Docker, create_conf: DockerTtsCreateConfi
     let _ = daemon
         .create_image(
             Some(CreateImageOptions {
-                from_image: create_conf.image_name.clone(),
+                from_image: Some(create_conf.image_name.clone()),
                 ..Default::default()
             }),
             None,
@@ -50,14 +53,14 @@ pub async fn create_container(daemon: &Docker, create_conf: DockerTtsCreateConfi
         .await;
 
     let create_options = CreateContainerOptions {
-        name: create_conf.container_name.clone(),
-        platform: None,
+        name: Some(create_conf.container_name.clone()),
+        platform: "linux".to_string(),
     };
     // Randomly assign a port
     let host_config: HostConfig = HostConfig {
         extra_hosts: Some(vec!["host.docker.internal:host-gateway".into()]),
         port_bindings: Some(hashmap! {
-            create_conf.image_name.clone() => None,
+            format!("{}/tcp", create_conf.internal_port) => None,
         }),
         device_requests: Some(vec![DeviceRequest {
             driver: Some("".into()),
@@ -69,12 +72,11 @@ pub async fn create_container(daemon: &Docker, create_conf: DockerTtsCreateConfi
         ..Default::default()
     };
 
-    let empty = HashMap::<(), ()>::new();
-    let mut exposed_ports = HashMap::new();
-    let exposed_port = create_conf.internal_port.to_string();
-    exposed_ports.insert(exposed_port, empty);
+    let mut exposed_ports = Vec::new();
+    let exposed_port = format!("{}/tcp", create_conf.internal_port.to_string());
+    exposed_ports.push(exposed_port);
 
-    let config = Config {
+    let config = ContainerCreateBody {
         image: Some(create_conf.image_name),
         cmd: None,
         exposed_ports: Some(exposed_ports),
@@ -96,7 +98,7 @@ pub async fn find_container(daemon: &Docker, name: &str) -> eyre::Result<Option<
         all: true,
         limit: None,
         size: false,
-        filters: map,
+        filters: Some(map),
     };
 
     Ok(daemon.list_containers(Some(opts)).await?.into_iter().next())

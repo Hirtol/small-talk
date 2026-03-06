@@ -1,14 +1,11 @@
 use bollard::{
-    container::{Config, CreateContainerOptions, ListContainersOptions},
-    image::CreateImageOptions,
     models::{ContainerSummary, DeviceRequest, HostConfig},
     Docker,
 };
 use eyre::ContextCompat;
 use futures::StreamExt;
 use std::{collections::HashMap, time::Duration};
-use bollard::container::StartContainerOptions;
-use bollard::query_parameters::StopContainerOptions;
+use bollard::query_parameters::{StartContainerOptions, StopContainerOptions};
 use crate::timeout::DroppableState;
 
 pub mod docker_utils;
@@ -30,7 +27,7 @@ impl DroppableState for DockerTemporaryState {
             tracing::debug!(image=?config.image_name, container=?config.container_name, "Attempting to start docker container");
             let container = docker_utils::find_or_create_container(daemon, config.clone()).await?;
 
-            daemon.start_container(container.id.as_deref().unwrap(), None::<StartContainerOptions<String>>).await?;
+            daemon.start_container(container.id.as_deref().unwrap(), None::<StartContainerOptions>).await?;
             // Need to query again as we might get a randomly assigned IP address
             let final_container = docker_utils::find_or_create_container(daemon, config).await?;
 
