@@ -34,3 +34,4 @@ st_system = {path = "../st_system"}
 st_application = { path = "../st_application" }
 wavers.workspace = true
 rayon = "1.10.0"
+serde.workspace = true

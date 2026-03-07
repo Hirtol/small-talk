@@ -8270,6 +8270,7 @@ dependencies = [
  "path_abs",
  "rayon",
  "sea-orm",
+ "serde",
  "sqlx",
  "st_application",
  "st_audio",
