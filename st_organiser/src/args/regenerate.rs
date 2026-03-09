@@ -5,16 +5,14 @@ use sea_orm::{
     SelectColumns,
     Statement,
 };
-use st_application::config::SharedConfig;
+use st_application::{config::SharedConfig, SmallTalkApplication};
+use st_data::voice::VoiceReference;
 use st_system::{
-    session::{db, db::SessionDb, GameSessionHandle}, PostProcessing, RvcModel, RvcOptions, TtsSystem,
-    TtsVoice,
+    session::{db, db::SessionDb, GameSessionHandle}, PostProcessing, RvcModel, RvcOptions, TtsSystem, TtsVoice,
     VoiceLine,
 };
 use tracing::Span;
 use tracing_indicatif::{span_ext::IndicatifSpanExt, style::ProgressStyle};
-use st_application::SmallTalkApplication;
-use st_data::voice::VoiceReference;
 
 #[derive(clap::Args, Debug)]
 pub struct RegenerateCommand {
@@ -225,10 +223,12 @@ impl RegenerateCommand {
         SELECT
         DISTINCT d.dialogue_text, c.voice_name, c.voice_location
         FROM dialogue d
-                 LEFT JOIN voice_lines v
-                           ON d.dialogue_text = v.dialogue_text
                  LEFT JOIN characters c
                            ON c.id = d.character_id
+                 LEFT JOIN voice_lines v
+                           ON d.dialogue_text = v.dialogue_text
+                                  AND v.voice_name = c.voice_name
+                                  AND v.voice_location = c.voice_location
         WHERE v.id IS NULL
         "#,
         )

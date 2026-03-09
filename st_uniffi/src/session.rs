@@ -15,7 +15,8 @@ pub struct StGameSessionFfi {
 impl StGameSessionFfi {
     pub async fn available_voices(&self) -> crate::Result<Vec<VoiceReference>> {
         Ok(self
-            .handle
+            .system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
             .available_voices()
             .await?
             .into_iter()
@@ -24,7 +25,9 @@ impl StGameSessionFfi {
     }
 
     pub async fn session_characters(&self) -> crate::Result<HashMap<CharacterVoice, VoiceReference>> {
-        let output = self.handle.character_voices().await?;
+        let output = self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
+            .character_voices().await?;
 
         Ok(output.into_iter().map(|(k, v)| (k.into(), v.into())).collect())
     }
@@ -34,7 +37,8 @@ impl StGameSessionFfi {
         characters: HashMap<CharacterVoice, VoiceReference>,
     ) -> crate::Result<()> {
         for (character, voice) in characters {
-            self.handle
+            self.system.system.tts_system
+                .get_or_start_session(self.handle.name()).await?
                 .force_character_voice(character.into(), voice.into())
                 .await?;
         }
@@ -42,7 +46,8 @@ impl StGameSessionFfi {
     }
 
     pub async fn tts_playback_start(&self, requests: Vec<PlaybackVoiceLine>) -> crate::Result<()> {
-        self.handle
+        self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
             .playback_start(requests.into_iter().map(|i| i.into()).collect())
             .await?;
 
@@ -50,24 +55,31 @@ impl StGameSessionFfi {
     }
 
     pub async fn tts_playback_speed(&self, speed: f64) -> crate::Result<()> {
-        self.handle.playback_set_speed(speed).await?;
+        self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
+            .playback_set_speed(speed).await?;
 
         Ok(())
     }
 
     pub async fn tts_playback_stop(&self) -> crate::Result<()> {
-        self.handle.playback_stop().await?;
+        self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
+            .playback_stop().await?;
         Ok(())
     }
 
     pub async fn tts_request(&self, request: VoiceLine) -> crate::Result<TtsResponse> {
-        let out = self.handle.request_tts(request.into()).await?;
+        let out = self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
+            .request_tts(request.into()).await?;
 
         Ok(st_system::TtsResponse::clone(&out).into())
     }
 
     pub async fn tts_queue(&self, requests: Vec<VoiceLine>) -> crate::Result<()> {
-        self.handle
+        self.system.system.tts_system
+            .get_or_start_session(self.handle.name()).await?
             .add_all_to_queue(requests.into_iter().map(|i| i.into()).collect())
             .await?;
 

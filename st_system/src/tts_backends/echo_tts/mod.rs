@@ -12,9 +12,11 @@ use crate::{
     },
 };
 use eyre::{ContextCompat, WrapErr};
+use futures::TryFutureExt;
 use local::LocalEchoTtsState;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use st_data::TtsModel;
 
 type EchoTts = ReadyTtsApi<EchoTtsAPI>;
 
@@ -154,9 +156,12 @@ impl EchoTtsActor {
                         wav_file_bytes: voice_data.clone(),
                     };
                     tracing::trace!(?req, "Sending the following request to echo");
-                    let tts_response = tokio::time::timeout(Duration::from_secs(40), state.tts(req))
-                        .await
-                        .context("Timeout elapsed")??;
+                    let tts_response = tokio::time::timeout(
+                        Duration::from_secs(40),
+                        state.tts(req).map_err(|e| TtsError::ModelNotInitialised { model: TtsModel::EchoTts }),
+                    )
+                    .await
+                    .context("Timeout elapsed")??;
                     all_chunks.push(tts_response);
                 }
 
